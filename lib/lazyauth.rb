@@ -20,7 +20,7 @@ module LazyAuth
       UUID::NCName.to_ncname UUIDTools::UUID.random_create, version: 1
     end
 
-    def uri_minus uri, *key
+    def uri_minus_query uri, *key
       return uri unless uri.query
       uri = uri.dup
       key = key.map { |k| k.to_s }
@@ -47,9 +47,9 @@ module LazyAuth
       uri  = URI(req.base_url) + env['REQUEST_URI']
       resp = Rack::Response.new
 
-      # unless env['FCGI_ROLE'] == 'AUTHENTICATOR'
+      # unless env['FCGI_ROLE'] == 'AUTHORIZER'
       #   resp.status = 500
-      #   resp.body << "LazyAuth::App only works as a FastCGI authenticator!"
+      #   resp.body << "LazyAuth::App only works as a FastCGI authorizer!"
       #   return resp.finish
       # end
 
@@ -58,7 +58,7 @@ module LazyAuth
         # return 409 unless the knock parameter is valid
         unless nonce_ok? knock
           resp.status = 409
-          resp.body << 'boo hoo bad knock parameter'
+          resp.write 'boo hoo bad knock parameter'
           return resp.finish
         end
 
@@ -68,37 +68,49 @@ module LazyAuth
         # unless user
         # end
 
-        target = uri_minus uri, 'knock'
+        # remove existing cookie
+        if (nonce = req.cookies['lazyauth'])
+          resp.delete_cookie 'lazyauth', { value: nonce }
+        end
 
-        # set the cookie and the variable
-        resp.set_header 'Variable-USER', 'bob'
-        resp.set_header 'Variable-Location', target.to_s
+        target = uri_minus_query uri, 'knock'
+
+        # set the user and redirect location as variables
+        resp.set_header 'Variable-FCGI_USER', 'bob'
+        resp.set_header 'Variable-FCGI_REDIRECT', target.to_s
         resp.set_cookie 'lazyauth',
-          { value: make_nonce, expires: Time.at(2**31-1) }
+          { value: make_nonce, expires: Time.at(2**31-1), httponly: true }
+        # response has to be 200 or the auth handler won't pick it up
         resp.status = 200
-        resp.location = target.to_s
-        resp.body << 'lol setcher cookie ' + uri.to_s
+        # content-length has to be present but empty or it will crap out
+        resp.set_header 'Content-Length', ''
+
       elsif (nonce = req.cookies['lazyauth'])
         # return 409 unless the cookie is valid
-        unless nonce_ok? knock
+        unless nonce_ok? nonce
           resp.status = 409
-          resp.body << 'boo hoo bad nonce'
+          resp.write 'boo hoo bad nonce'
           return resp.finish
         end
 
         # return 401 if the cookie doesn't pick a user
 
-        resp.body << 'lol i see yer cookie'
+        # resp.write 'lol i see yer cookie'
 
         # just set the variable
-        resp.set_header 'Variable-USER', 'bob'
+        resp.set_header 'Variable-FCGI_USER', 'bob'
+        
+        # content-length has to be present but empty or it will crap out
+        resp.set_header 'Content-Length', ''
       else
         # return 401
         resp.status = 401
-        resp.body << 'boo hoo'
+        resp.write 'boo hoo'
       end
 
-      resp.finish
+      x = resp.finish
+      x[2] = []
+      x
     end
   end
 end

@@ -49,7 +49,7 @@ certain contexts, namely the ones the author of this gem is interested in.
   spec.add_development_dependency "rspec", "~> 3.0"
 
   # stuff we use
-  # spec.add_runtime_dependency 'foo', '~> 1.2.3'
+  spec.add_runtime_dependency 'uuidtools', '~> 2.1.5'
 
   # stuff i wrote
   spec.add_runtime_dependency 'uuid-ncname', '~> 0.2.2'
