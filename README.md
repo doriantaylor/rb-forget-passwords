@@ -40,6 +40,7 @@ First, you're going to need somewhere to put your data:
 
     $ lazyauth-cli init -s https://mysite.derp/ -d sqlite://lazyauth.db
     Created configuration file and state database.
+    $
 
 You can use LazyAuth in your Rack app, but it can also serve as a
 standalone authenticator, using [a little-known feature of the FastCGI
@@ -56,7 +57,7 @@ AuthnzFcgiDefineProvider authn LazyAuth fcgi://localhost:10101/
 
 # this is whatever you want to lock down
 <Location /protected>
-  # unfortunately mod_authnz_fcgi doesn't let you have blank default user
+  # unfortunately mod_authnz_fcgi won't let you have a blank default user
   AuthnzFcgiCheckAuthnProvider LazyAuth Authoritative On RequireBasicAuth Off UserExpr "%{reqenv:FCGI-USER}" DefaultUser nobody
   <RequireAll>
     Require valid-user
@@ -75,6 +76,8 @@ Now run the authenticator:
     Running authenticator daemon on fcgi://localhost:10101/
     $
 
+> Note: You may want to put some kind of watcher on this process; if it
+> ever happens to crash, your website will hurl `500`s until you fix it.
 
 ## Installation
 

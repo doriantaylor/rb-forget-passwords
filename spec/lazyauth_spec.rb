@@ -1,6 +1,6 @@
-RSpec.describe Lazyauth do
+RSpec.describe LazyAuth do
   it "has a version number" do
-    expect(Lazyauth::VERSION).not_to be nil
+    expect(LazyAuth::VERSION).not_to be nil
   end
 
   it "does something useful" do
