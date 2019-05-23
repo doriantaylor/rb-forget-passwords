@@ -78,8 +78,10 @@ module LazyAuth
         # set the user and redirect location as variables
         resp.set_header 'Variable-FCGI_USER', 'bob'
         resp.set_header 'Variable-FCGI_REDIRECT', target.to_s
-        resp.set_cookie 'lazyauth',
-          { value: make_nonce, expires: Time.at(2**31-1), httponly: true }
+        resp.set_cookie 'lazyauth', {
+          value: make_nonce, expires: Time.at(2**31-1),
+          secure: req.ssl?,  httponly: true,
+        }
         # response has to be 200 or the auth handler won't pick it up
         resp.status = 200
         # content-length has to be present but empty or it will crap out

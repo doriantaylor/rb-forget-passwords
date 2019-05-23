@@ -20,7 +20,7 @@ user accounts. Moreover, since the long tail of internet
 authentication is a **forgot my password** link, I figure let's just
 cut to the chase and hand those out instead.
 
-# Usage
+## Usage
 
 This is what it would look like to generate a LazyAuth link, assuming
 you had everything else set up:
@@ -83,8 +83,9 @@ Now run the authenticator:
     Running authenticator daemon on fcgi://localhost:10101/
     $
 
-> Note: You may want to put some kind of watcher on this process; if it
-> ever happens to crash, your website will hurl `500`s until you fix it.
+> Note: You may want to put some kind of watcher on this process; if
+> it ever happens to crash, your website will hurl `500` errors until
+> you fix it.
 
 ## Installation
 
