@@ -1,0 +1,7 @@
+#!/usr/bin/env ruby
+# -*- mode: enh-ruby -*-
+
+# code is here
+require 'lazyauth/cli'
+
+LazyAuth::CLI.new.run
