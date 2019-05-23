@@ -58,12 +58,19 @@ AuthnzFcgiDefineProvider authn LazyAuth fcgi://localhost:10101/
 # this is whatever you want to lock down
 <Location /protected>
   # unfortunately mod_authnz_fcgi won't let you have a blank default user
-  AuthnzFcgiCheckAuthnProvider LazyAuth Authoritative On RequireBasicAuth Off UserExpr "%{reqenv:FCGI-USER}" DefaultUser nobody
+  AuthnzFcgiCheckAuthnProvider LazyAuth Authoritative On RequireBasicAuth Off UserExpr "%{reqenv:FCGI_USER}" DefaultUser nobody
   <RequireAll>
     Require valid-user
     # that's fine, we just outlaw 'nobody'
     Require not user nobody
   </RequireAll>
+
+  # we will also need to smuggle out any redirection that happens; 
+  # note the use of ENV instead of reqenv and the QSD flag. I also use
+  # the 307 response code here to indicate the request method ought to
+  # be preserved across redirects.
+  RewriteCond %{ENV:FCGI_REDIRECT} .+
+  RewriteRule .* %{ENV:FCGI_REDIRECT} [R=307,L,QSD]
 </Location>
 ```
 
