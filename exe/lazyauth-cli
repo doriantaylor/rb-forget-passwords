@@ -4,4 +4,4 @@
 # code is here
 require 'lazyauth/cli'
 
-LazyAuth::CLI.new.run
+LazyAuth::CLI.run

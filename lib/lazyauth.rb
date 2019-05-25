@@ -1,4 +1,5 @@
 require 'lazyauth/version'
+require 'lazyauth/state'
 require 'uuid-ncname'
 
 module LazyAuth
@@ -39,7 +40,12 @@ module LazyAuth
 
     public
 
-    def initialize
+    def initialize dsn, query_key: 'knock', cookie_key: 'lazyauth',
+        user_var: 'FCGI_USER', redirect_var: 'FCGI_REDIRECT'
+      @state = State.new dsn
+      warn @state.db.tables
+      require 'logger'
+      @state.db.loggers << Logger.new($stderr)
     end
 
     def call env
@@ -68,6 +74,9 @@ module LazyAuth
         # unless user
         # end
 
+        user = @state.user_for knock
+        warn user
+
         # remove existing cookie
         if (nonce = req.cookies['lazyauth'])
           resp.delete_cookie 'lazyauth', { value: nonce }
@@ -82,8 +91,10 @@ module LazyAuth
           value: make_nonce, expires: Time.at(2**31-1),
           secure: req.ssl?,  httponly: true,
         }
+
         # response has to be 200 or the auth handler won't pick it up
-        resp.status = 200
+        # (response is already 200 by default)
+
         # content-length has to be present but empty or it will crap out
         resp.set_header 'Content-Length', ''
 
@@ -96,6 +107,8 @@ module LazyAuth
         end
 
         # return 401 if the cookie doesn't pick a user
+        user = @state.user_for nonce
+        warn user
 
         # resp.write 'lol i see yer cookie'
 
@@ -110,9 +123,7 @@ module LazyAuth
         resp.write 'boo hoo'
       end
 
-      x = resp.finish
-      x[2] = []
-      x
+      resp.finish
     end
   end
 end
