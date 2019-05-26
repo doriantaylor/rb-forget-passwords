@@ -17,7 +17,7 @@ module LazyAuth
 
     private
 
-    def make_nonce
+    def make_token
       UUID::NCName.to_ncname UUIDTools::UUID.random_create, version: 1
     end
 
@@ -33,19 +33,29 @@ module LazyAuth
       uri
     end
 
-    def nonce_ok? nonce
-      [22, 26].include? nonce.length
-      nonce =~ /^[A-Pa-p][0-9A-Za-z_-]+[A-Pa-p]$/
+    def token_ok? token
+      [22, 26].include? token.length
+      token =~ /^[A-Pa-p][0-9A-Za-z_-]+[A-Pa-p]$/
     end
 
     public
 
+    attr_reader :query_key, :cookie_key, :user_var, :redirect_var
+
     def initialize dsn, query_key: 'knock', cookie_key: 'lazyauth',
-        user_var: 'FCGI_USER', redirect_var: 'FCGI_REDIRECT'
+        user_var: 'FCGI_USER', redirect_var: 'FCGI_REDIRECT', debug: false
+
+      @query_key    = query_key
+      @cookie_key   = cookie_key
+      @user_var     = user_var
+      @redirect_var = redirect_var
+
       @state = State.new dsn
-      warn @state.db.tables
-      require 'logger'
-      @state.db.loggers << Logger.new($stderr)
+      if debug
+        warn @state.db.tables
+        require 'logger'
+        @state.db.loggers << Logger.new($stderr)
+      end
     end
 
     def call env
@@ -60,9 +70,9 @@ module LazyAuth
       # end
 
       # obtain the query string
-      if (knock = req.GET['knock'])
+      if (knock = req.GET[query_key])
         # return 409 unless the knock parameter is valid
-        unless nonce_ok? knock
+        unless token_ok? knock
           resp.status = 409
           resp.write 'boo hoo bad knock parameter'
           return resp.finish
@@ -78,17 +88,17 @@ module LazyAuth
         warn user
 
         # remove existing cookie
-        if (nonce = req.cookies['lazyauth'])
-          resp.delete_cookie 'lazyauth', { value: nonce }
+        if (token = req.cookies[cookie_key])
+          resp.delete_cookie cookie_key, { value: token }
         end
 
-        target = uri_minus_query uri, 'knock'
+        target = uri_minus_query uri, query_key
 
         # set the user and redirect location as variables
-        resp.set_header 'Variable-FCGI_USER', 'bob'
-        resp.set_header 'Variable-FCGI_REDIRECT', target.to_s
-        resp.set_cookie 'lazyauth', {
-          value: make_nonce, expires: Time.at(2**31-1),
+        resp.set_header "Variable-#{user_var}", 'bob'
+        resp.set_header "Variable-#{redirect_var}", target.to_s
+        resp.set_cookie cookie_key, {
+          value: make_token, expires: Time.at(2**31-1),
           secure: req.ssl?,  httponly: true,
         }
 
@@ -98,22 +108,22 @@ module LazyAuth
         # content-length has to be present but empty or it will crap out
         resp.set_header 'Content-Length', ''
 
-      elsif (nonce = req.cookies['lazyauth'])
+      elsif (token = req.cookies[cookie_key])
         # return 409 unless the cookie is valid
-        unless nonce_ok? nonce
+        unless token_ok? token
           resp.status = 409
-          resp.write 'boo hoo bad nonce'
+          resp.write 'boo hoo bad token'
           return resp.finish
         end
 
         # return 401 if the cookie doesn't pick a user
-        user = @state.user_for nonce
+        user = @state.user_for token
         warn user
 
         # resp.write 'lol i see yer cookie'
 
         # just set the variable
-        resp.set_header 'Variable-FCGI_USER', 'bob'
+        resp.set_header "Variable-#{user_var}", 'bob'
         
         # content-length has to be present but empty or it will crap out
         resp.set_header 'Content-Length', ''
