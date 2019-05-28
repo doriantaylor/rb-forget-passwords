@@ -38,24 +38,27 @@ module LazyAuth
       token =~ /^[A-Pa-p][0-9A-Za-z_-]+[A-Pa-p]$/
     end
 
+    TWO_WEEKS = ISO8601::Duration.new('P2W').freeze
+
     public
 
     attr_reader :query_key, :cookie_key, :user_var, :redirect_var
 
     def initialize dsn, query_key: 'knock', cookie_key: 'lazyauth',
-        user_var: 'FCGI_USER', redirect_var: 'FCGI_REDIRECT', debug: false
+        user_var: 'FCGI_USER', redirect_var: 'FCGI_REDIRECT',
+        expires: TWO_WEEKS, debug: false
 
       @query_key    = query_key
       @cookie_key   = cookie_key
       @user_var     = user_var
       @redirect_var = redirect_var
 
-      @state = State.new dsn
-      if debug
-        warn @state.db.tables
-        require 'logger'
-        @state.db.loggers << Logger.new($stderr)
-      end
+      @state = State.new dsn, debug: debug
+      # if debug
+      #   warn @state.db.tables
+      #   require 'logger'
+      #   @state.db.loggers << Logger.new($stderr)
+      # end
     end
 
     def call env

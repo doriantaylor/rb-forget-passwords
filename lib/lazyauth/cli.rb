@@ -22,8 +22,11 @@ module LazyAuth
       out
     end
 
-    ASCIIToken = Types::Strict::String.constructor(&:strip).constrained(
-      format: /^[A-Za-z_][0-9A-Za-z_.-]*$/)
+    ASCII = /^[A-Za-z_][0-9A-Za-z_.-]*$/
+
+    # okay so this shit doesn't seem to work
+
+    ASCIIToken = Strict::String.constrained(format: ASCII).constructor(&:strip)
 
     URI = Types.Constructor(::URI) do |x|
       begin
@@ -49,16 +52,16 @@ module LazyAuth
 
     HN = /^(?:[0-9a-z-]+(?:\.[0-9a-z-]+)*|[0-9a-f]{,4}(?::[0-9a-f]{,4}){,7})$/i
 
-    Hostname = Types::Strict::String.constructor(&:strip).constrained(
-      format: HN)
+    Hostname = String.constructor(&:strip).constrained(format: HN)
   end
 
   Config = Dry::Schema.Params do
-
     required(:dsn).value    Types::String
     optional(:base).value   Types::URI
-    required(:query).value  Types::ASCIIToken
-    required(:cookie).value Types::ASCIIToken
+    # whaaaaat the f the friggin type decl is supposed to take care of this
+    required(:query).filter(format?:  Types::ASCII).value Types::ASCIIToken
+    required(:cookie).filter(format?: Types::ASCII).value Types::ASCIIToken
+    #required(:cookie).value Types::ASCIIToken
 
     required(:expiry).hash do
       required(:url).value    Types::Duration
@@ -66,11 +69,11 @@ module LazyAuth
     end
 
     required(:vars).hash do
-      required(:user).value     Types::ASCIIToken
-      required(:redirect).value Types::ASCIIToken
+      required(:user).filter(format?:     Types::ASCII).value Types::ASCIIToken
+      required(:redirect).filter(format?: Types::ASCII).value Types::ASCIIToken
     end
 
-    required(:host).value Types::Hostname
+    required(:host).filter(format?: Types::HN).value Types::Hostname
     required(:port).value Types::Integer
     optional(:pid).value Types::Pathname
   end
@@ -121,7 +124,7 @@ module LazyAuth
       out
     end
 
-    def read_config cfg = @cfgfile, clean: true
+    def read_config cfg = @cfgfile, clean: true, commit: true
       unless cfg.is_a? Hash
         raise 'need a config file' unless
           cfg and (cfg.is_a?(Pathname) or cfg.respond_to?(:to_s))
@@ -134,10 +137,16 @@ module LazyAuth
         cfg = YAML.load_file cfg
       end
 
-      cfg = normalize_hash cfg
-      return cfg unless clean
+      if clean
+        cfg  = normalize_hash cfg
+        test = validate_config cfg
+        raise RuntimeError.new(test.errors.messages) unless test.success?
+        cfg = test.to_h
+      end
 
-      validate_config cfg
+      merge_config @config, cfg, commit: true if commit
+
+      cfg
     end
 
     def validate_config cfg
@@ -166,7 +175,7 @@ module LazyAuth
       h[:expiry][:url] = h[:expiry][:cookie] = exp if exp
       [:url, :cookie].each do |which|
         hs = (which.to_s + '_expiry').to_sym
-        c[:expiry][which] = h.delete hs if h.include? hs
+        h[:expiry][which] = h.delete hs if h.include? hs
       end
 
       # do fastcgi header variables
@@ -181,9 +190,7 @@ module LazyAuth
       h
     end
 
-    def foo_merge_config *cfg, commit: false, validate: false
-      warn cfg.inspect
-
+    def merge_config *cfg, commit: false, validate: false
       raise 'wah wah need a config' unless (out = cfg.shift)
       # normalize does an implicit deep clone
       out = normalize_hash(out, dup: true)
@@ -196,11 +203,9 @@ module LazyAuth
       if validate
         test = Config.call out
         if test.success?
-          warn test.inspect
           out = test.to_h
         else
-          warn 'wtf'
-          raise RuntimeError.new 'waah'
+          raise RuntimeError.new test.errors.messages
         end
       end
 
@@ -209,61 +214,9 @@ module LazyAuth
       out
     end
 
-    def merge_config options, commit: true
-      # uggh it's easier to just do this by hand for now than some
-      # fancy schema merging thing
-
-      c = @config.dup
-      [:vars, :expiry].each { |x| c[x] = c[x].dup }
-      # lol a little zealous method_missing methinks
-      h = ((options.is_a?(Commander::Command::Options) or options.is_a?(nil)) ?
-        options.__hash__ : options).dup
-      #h = options.__hash__.dup
-
-      # fastcgi variables
-      [:user, :redirect].each do |which|
-        vs = (which.to_s + '_var').to_sym
-        c[:vars][which] = h[vs] if h[vs]
-      end
-
-      # expiry dates
-      if h[:expiry]
-        c[:expiry][:url] = c[:expiry][:cookie] = coerce_duration h[:expiry]
-      end
-      [:url, :cookie].each do |which|
-        hs = (which.to_s + '_expiry').to_sym
-        c[:expiry][which] = coerce_duration h[hs] if h[hs]
-      end
-
-      OPTION_MAP.each do |source, target|
-        c[target] = h[source] if h[source]
-      end
-
-      @config = c if commit
-
-      c
-    end
-
     def write_config cfg = @config, file: @cfgfile
       out = normalize_hash cfg, strings: true, flatten: true
       file.open(?w) { |fh| fh.write out.to_yaml }
-    end
-
-    def coerce_duration d
-      Types::Duration[d]
-      # begin
-      #   return ISO8601::Duration.new d.strip.upcase
-      # rescue ISO8601::Errors::UnknownPattern
-      #   raise OptionParser::InvalidArgument.new(
-      #     "#{d} is not an ISO8601 Duration")
-      # end
-    end
-
-    def add_duration a, b
-    end
-
-    def set_defaults options
-      options.default :base_url => @config[:base], :dsn => @config[:dsn]
     end
 
     def connect dsn = @dsn
@@ -294,6 +247,11 @@ module LazyAuth
       global_option '-d', '--dsn STRING',
         'Specify a data source name, overriding configuration' do |o|
         @config[:dsn] = o
+      end
+
+      global_option '-D', '--debug-sql',
+        'Log SQL queries to standard error' do
+        @log_sql = true
       end
 
       command :init do |c|
@@ -371,9 +329,9 @@ command.
           # wrap these calls
           begin
             cfg = cmdline_config opts
-            foo_merge_config @config, cfg, commit: true, validate: true
+            merge_config @config, cfg, commit: true, validate: true
             write_config
-          rescue Errno::EACCES => e
+          rescue SystemCallError => e
             rel = @cfgfile.relative_path_from Pathname.pwd
             say "Could not write #{rel}: #{e}"
             exit 1
@@ -382,27 +340,30 @@ command.
           #  exit 1
           end
 
+          do_db = true
           begin
-            state = State.new @config[:dsn], create: false
+            state = State.new @config[:dsn], create: false, debug: @log_sql
 
             # check for existence of database
             if state.initialized?
               x = "Database #{@config[:dsn]} is already initialized. Overwrite?"
               unless agree x
                 say "Not overwriting #{@config[:dsn]}."
-                exit 1
+                do_db = false
               end
             end
 
             # now create the tables
-            state.initialize!
+            state.initialize! if do_db
 
           rescue Sequel::DatabaseConnectionError => e
             # complain if database doesn't exist or if i don't have access
             say "Could not connect to #{@config[:dsn]}: #{e}"
+            do_db = false
           end
 
           # now tell the user what i did
+          say "Created new configuration file#{do_db ? ' and database' : ''}."
         end
       end
 
@@ -434,10 +395,59 @@ not meant to be authoritative storage for user profiles.
           'Force minting a new token even if the current one is still fresh'
         c.option '-x', '--expire',
           'Expire any active tokens in circulation (implies --new)'
-        c.option '-1', '--oneoff',
-          'The token will expire after the first time it is used.'
+        c.option '-1', '--oneoff', 'The token will expire after the first ' +
+          'time it is used (implies --new).'
 
         c.action do |args, opts|
+          read_config
+          merge_config @config, cmdline_config(opts),
+            commit: true, validate: true
+
+          user, url = *(args.map(&:strip))
+
+          raise Commander::Runner::CommandError.new 'No user supplied' unless
+            user and user != ''
+          if url and url != ''
+            begin
+              if @config[:base]
+                url = @config[:base].merge url
+              else
+                url = URI(url)
+              end
+            rescue URI::InvalidURIError => e
+              raise Commander::Runner::CommandError.new e
+            end
+          else
+            url = nil
+          end
+
+          begin
+            
+            # connect to the database
+            state = State.new @config[:dsn], debug: @log_sql,
+              query_expires:  @config[:expiry][:url],
+              cookie_expires: @config[:expiry][:cookie]
+
+            #unless (id = state.id_for user, create: true, email: opts.email)
+            #end
+
+            id = state.id_for user, create: true, email: opts.email
+
+            warn id
+
+            # obtain the latest live token for this principal
+
+            warn state.token_for id
+
+            #token = state.new_token id
+
+            #warn token
+
+          rescue Sequel::DatabaseConnectionError => e
+            say "Could not connect to #{@config[:dsn]}: #{e}"
+            exit 1
+          end
+
           # merge defaults -> config b
           #opts = merge_config opts
 
@@ -464,7 +474,6 @@ something like `mod_authnz_fcgi`.
         c.option '-p', '--port NUMBER', 'Specify TCP port (default 10101)'
         c.option '-z', '--detach', 'Detach and daemonize the process'
         c.option '-P', '--pid FILE', 'Create a PID file when detached'
-        c.option '-D', '--debug-sql', 'Log SQL queries to standard error'
 
         c.action do |args, opts|
           require 'lazyauth'
