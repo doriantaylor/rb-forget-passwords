@@ -25,8 +25,8 @@ cut to the chase and hand those out instead.
 This is what it would look like to generate a LazyAuth link, assuming
 you had everything else set up:
 
-    $ lazyauth-cli -c lazyauth.yml bob https://mysite.derp/
-    https://mysite.derp/?knock=E4FJfQvFeBZJ6HLx9PCLtK
+    $ lazyauth-cli -c lazyauth.yml bob https://mysite.derp/private
+    https://mysite.derp/private?knock=E4FJfQvFeBZJ6HLx9PCLtK
 
 Now you DM, text, or email this link to Bob. When Bob clicks on the
 link, LazyAuth will set a cookie, and when it sees the cookie again,
@@ -38,7 +38,7 @@ other authentication framework is present in your system.
 
 First, you're going to need somewhere to put your data:
 
-    $ lazyauth-cli init -s https://mysite.derp/ -d sqlite://lazyauth.db
+    $ lazyauth-cli init -b https://mysite.derp/ -d sqlite://lazyauth.db
     Created configuration file and state database.
     $
 

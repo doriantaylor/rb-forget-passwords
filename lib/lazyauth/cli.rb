@@ -363,7 +363,8 @@ command.
           end
 
           # now tell the user what i did
-          say "Created new configuration file#{do_db ? ' and database' : ''}."
+          say 'Created new configuration file' +
+            "#{do_db ? ' and state database' : ''}."
         end
       end
 
@@ -514,13 +515,16 @@ something like `mod_authnz_fcgi`.
           read_config
           merge_config @config, cmdline_config(opts),
             commit: true, validate: true
-          
+
+          say 'Running authenticator daemon on ' +
+            "fcgi://#{@config[:host]}:#{@config[:port]}/"
+
           Rack::Server.start({
             app: LazyAuth::App.new(@config[:dsn], debug: @log_sql),
             server: 'fastcgi',
             environment: 'none',
             daemonize: opts.detach,
-            Host: @config[:listen],
+            Host: @config[:host],
             Port: @config[:port],
           })
         end

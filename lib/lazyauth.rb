@@ -102,7 +102,7 @@ module LazyAuth
         token = @state.new_token user, cookie: true
 
         # set the user and redirect location as variables
-        resp.set_header "Variable-#{user_var}", 'bob'
+        resp.set_header "Variable-#{user_var}", user
         resp.set_header "Variable-#{redirect_var}", target.to_s
         resp.set_cookie cookie_key, {
           value: token, expires: Time.at(2**31-1),
