@@ -74,12 +74,6 @@ module LazyAuth
               base.update(expires: S::CURRENT_TIMESTAMP)
             end
           end
-
-          # # fresh tokens are unexpired AND (NOT oneoff OR usage.seen IS NULL)
-          # def m.fresh cookie: false, oneoff: false
-
-          #   #left_join(:usage, [:token], as: )where { !oneoff | 
-          # end
         },
         create: -> {
           String    :token,   null: false, fixed: true, size: 36
@@ -110,8 +104,6 @@ module LazyAuth
           # don't forget it's *def m.whatever*
           def m.latest
             LATEST
-            # LATEST.join(:token, [:token]).join(
-            #   :user, id: :user).select(:token, :user, :ip, :seen)
           end
 
         },

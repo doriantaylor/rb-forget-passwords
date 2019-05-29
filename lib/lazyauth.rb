@@ -4,6 +4,8 @@ require 'uuid-ncname'
 
 module LazyAuth
   class Middleware
+    # lol jk it's not a middleware yet. let's get the app running
+    # first and then we can break it in two.
   end
 
   class App
@@ -54,17 +56,14 @@ module LazyAuth
       @redirect_var = redirect_var
 
       @state = State.new dsn, debug: debug
-      # if debug
-      #   warn @state.db.tables
-      #   require 'logger'
-      #   @state.db.loggers << Logger.new($stderr)
-      # end
     end
 
     def call env
       req  = Rack::Request.new env
       uri  = URI(req.base_url) + env['REQUEST_URI']
       resp = Rack::Response.new
+
+      # keep this around for when we split this into app and middleware
 
       # unless env['FCGI_ROLE'] == 'AUTHORIZER'
       #   resp.status = 500
@@ -82,10 +81,6 @@ module LazyAuth
         end
 
         # return 401 if the knock parameter doesn't pick a user
-
-        # user = @state.match knock
-        # unless user
-        # end
 
         user = @state.user_for knock
         unless user

@@ -475,7 +475,8 @@ not meant to be authoritative storage for user profiles.
 
               url.query = URI::encode_www_form query
 
-              say "Here's the link to give to #{user} (and only #{user}): #{url}"
+              say "Here's the link to give to #{user} (and only #{user}):" +
+                url.to_s
             else
               say "No URL given, so here's your token: #{token}"
             end
