@@ -36,6 +36,45 @@ module LazyAuth
         model: -> m {
           m.one_to_many :usage, key: :token
           m.many_to_one :user
+
+          # we can use exclude to invert this
+          def m.expired date: S::CURRENT_TIMESTAMP
+            where { expires < date }
+          end
+
+
+          m.dataset_module do
+            where(:expired) { expires < S::CURRENT_TIMESTAMP }
+            order :by_date, :added, :expires, :user
+
+            def for id
+              where(user: id)
+            end
+
+            def fresh cookie: false, oneoff: false
+              base = where(slug: !cookie, oneoff: oneoff) {
+                expires >= S::CURRENT_TIMESTAMP
+              }
+
+              base = base.left_join(Usage.latest, [:token]).where(seen: nil) if
+                !cookie && oneoff
+
+              base
+            end
+
+            def expire_all cookie: nil
+              base = where { expires > S::CURRENT_TIMESTAMP }
+              base = base.where(slug: !cookie) unless cookie.nil?
+
+              base.update(expires: S::CURRENT_TIMESTAMP)
+            end
+          end
+
+          # # fresh tokens are unexpired AND (NOT oneoff OR usage.seen IS NULL)
+          # def m.fresh cookie: false, oneoff: false
+
+          #   #left_join(:usage, [:token], as: )where { !oneoff | 
+          # end
         },
         create: -> {
           String    :token,   null: false, fixed: true, size: 36
@@ -55,10 +94,21 @@ module LazyAuth
         class: :Usage,
         model: -> m {
           m.many_to_one :token
-          m.dataset_module do
-            def hurr
-            end
+
+          db = m.db
+
+          LATEST = db.from{usage.as(:ul)}.exclude(
+            db.from{usage.as(:ur)}.where{
+              (ul[:seen] < ur[:seen]) & {ul[:token] => ur[:token]}
+            }.select(1).exists)
+
+          # don't forget it's *def m.whatever*
+          def m.latest
+            LATEST
+            # LATEST.join(:token, [:token]).join(
+            #   :user, id: :user).select(:token, :user, :ip, :seen)
           end
+
         },
         create: -> {
           String   :token, null: false, unique: true, fixed: true, size: 36
@@ -89,7 +139,6 @@ module LazyAuth
         db.drop_table table, cascade: true if
           cascade && db.table_exists?(table)
         m = db.method method
-        warn m
         m.call table, &proc
       end
     end
@@ -146,8 +195,8 @@ module LazyAuth
       first_run force: true
     end
 
-    def transaction
-      yield @db.transaction 
+    def transaction &block
+      @db.transaction(&block)
     end
 
     def id_for principal, create: false, email: nil
@@ -184,7 +233,11 @@ module LazyAuth
       raise "No user with ID #{principal} found" unless id
 
       # this should be a duration
+      raise 'Expires should be an ISO8601::Duration' if 
+        expires && !expires.is_a?(ISO8601::Duration)
       expires ||= @expiry[cookie ? :cookie : :query]
+
+      oneoff = false if cookie
 
       now = DateTime.now
       # the iso8601 guy didn't make it so you could add a duration to
@@ -196,42 +249,37 @@ module LazyAuth
       
       uuid = UUIDTools::UUID.random_create
 
-      @token.insert(user: id, token: uuid.to_s, slug: !cookie, expires: expires)
+      @token.insert(user: id, token: uuid.to_s, slug: !cookie,
+        oneoff: !!oneoff, expires: expires)
 
       UUID::NCName::to_ncname uuid, version: 1
     end
 
-# from the author of sequel (2019-05-27):
-#
-# 15:11 < jeremyevans> dorian:
-# DB.from{same_table.as(:a)}.exclude(DB.from{same_table.as(:b)}.where{(a[:order]
-#                     < b[:order]) & {a[:key]=>b[:key]}}.select(1).exists)
-
+    # from the author of sequel (2019-05-27):
+    #
+    # 15:11 < jeremyevans> dorian:
+    # DB.from{same_table.as(:a)}.exclude(
+    #   DB.from{same_table.as(:b)}.where{(a[:order] < b[:order]) &
+    #     {a[:key]=>b[:key]}}.select(1).exists)
 
     def token_for principal, cookie: false, oneoff: false, expires: nil
       id = principal.is_a?(Integer) ? principal : id_for(principal)
       raise "No user with ID #{principal} found" unless id
 
       # only query strings can be oneoffs
+      cookie = !!cookie
       oneoff = false if cookie
+      oneoff = !!oneoff
 
-      # obtain the token tat 
+      # obtain the last (newest) "fresh" token for this user
+      row = @token.fresh(cookie: cookie, oneoff: oneoff).for(id).by_date.first
+      return UUID::NCNAME::to_ncname row.token, version: 1 if row
+    end
 
-      warn @db[:usage].exclude(db[:usage].select(1).where(token: S[:u][:token])).as(:u).inspect
-
-      # nx = @db[:usage].from(S[:usage].as(:u)).exclude(
-      #   @db[:usage].select(1).where(token: S[:u][:token]) {
-      #     seen < S[:u][:seen] }.exists)
-
-      # warn nx.join
-
-      # warn nx
-
-      #nx = @usage.select(1).where { Sequel[:seen] < 
-
-      #@token.join(:usage, :user) @usage.
-
-      #ds = @token.select(:token).where(slug: !cookie)
+    def expire_tokens_for principal, cookie: nil
+      id = principal.is_a?(Integer) ? principal : id_for(principal)
+      raise "No user with ID #{principal} found" unless id
+      @token.for(id).expire_all cookie: cookie
     end
 
     def user_for token, cookie: false
@@ -244,6 +292,7 @@ module LazyAuth
     end
 
     def stamp_token token, ip, when: DateTime.now
+      uuid  = UUID::NCName::from_ncname token, version: 1
     end
   end
 end

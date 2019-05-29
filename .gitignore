@@ -13,3 +13,4 @@
 # state files
 lazyauth.yml
 lazyauth.db
+lazyauth.sqlite

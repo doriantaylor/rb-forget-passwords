@@ -157,12 +157,15 @@ module LazyAuth
       base_url:   :base,
       query_key:  :query,
       cookie_key: :cookie,
+      lifetime:   :expiry,
       listen:     :host,
     }.freeze
 
     def cmdline_config options
-      warn options.class
       h = options.__hash__.dup
+
+      # do the easy ones first
+      h.transform_keys! { |k| OPTION_MAP.fetch k, k }
 
       # prepare hashes
       exp = h.delete :expiry if h.include?(:expiry) and !h[:expiry].is_a?(Hash)
@@ -183,9 +186,6 @@ module LazyAuth
         vs = (which.to_s + '_var').to_sym
         h[:vars][which] = h.delete vs if h.include? vs
       end
-
-      # do the rest
-      h.transform_keys! { |k| OPTION_MAP.fetch k, k }
 
       h
     end
@@ -414,34 +414,71 @@ not meant to be authoritative storage for user profiles.
               else
                 url = URI(url)
               end
+
+              scheme = url.scheme.to_s.downcase
+
+              if scheme.start_with? 'http'
+                say 'Unencrypted HTTP will be insecure,' +
+                  "but I assume you know what you're doing" if
+                  url.scheme == 'http'
+              else
+                say 'Gonna be hard doing Web authentication ' +
+                  "against a non-Web URL, but you're the boss!"
+              end
             rescue URI::InvalidURIError => e
               raise Commander::Runner::CommandError.new e
             end
           else
-            url = nil
+            url = @config[:base]? @config[:base].dup : nil
           end
 
+          # handle implications of expire/oneoff options
+          opts.default :new => !!(opts.expire || opts.oneoff)
+
           begin
-            
+
             # connect to the database
             state = State.new @config[:dsn], debug: @log_sql,
               query_expires:  @config[:expiry][:url],
               cookie_expires: @config[:expiry][:cookie]
 
-            #unless (id = state.id_for user, create: true, email: opts.email)
-            #end
-
             id = state.id_for user, create: true, email: opts.email
 
-            warn id
-
             # obtain the latest live token for this principal
+            token = state.token_for id unless opts.new
 
-            warn state.token_for id
+            # eh i don't like this logic but it was the least-bad
+            # option i could think of at the time
+            if !token || opts.new
+              if opts.expire
+                say "Expiring all live tokens for #{user}."
+                # burn all existing query-string tokens
+                state.expire_tokens_for id, cookie: false
 
-            #token = state.new_token id
+                # XXX do we put in a command-line switch for burning
+                # the cookies too?
+              end
+              # create new token
+              token = state.new_token id, oneoff: opts.oneoff,
+                expires: @config[:expiry][:query]
+            end
 
-            #warn token
+            if url
+              if (query = url.query)
+                query = URI::decode_www_form query
+              else 
+                query = []
+              end
+
+              # now add the key
+              query << [@config[:query], token]
+
+              url.query = URI::encode_www_form query
+
+              say "Give this link to #{user}: #{url}"
+            else
+              say "No URL, so here's your token: #{token}"
+            end
 
           rescue Sequel::DatabaseConnectionError => e
             say "Could not connect to #{@config[:dsn]}: #{e}"
