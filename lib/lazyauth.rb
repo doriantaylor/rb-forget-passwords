@@ -88,20 +88,29 @@ module LazyAuth
         # end
 
         user = @state.user_for knock
-        warn user
+        unless user
+          resp.status = 401
+          resp.write "Could not find a user for token #{knock}."
+          return resp.finish
+        end
+
+        @state.stamp_token knock, req.ip
 
         # remove existing cookie
         if (token = req.cookies[cookie_key])
+          @state.token.expire token
           resp.delete_cookie cookie_key, { value: token }
         end
 
         target = uri_minus_query uri, query_key
 
+        token = @state.new_token user, cookie: true
+
         # set the user and redirect location as variables
         resp.set_header "Variable-#{user_var}", 'bob'
         resp.set_header "Variable-#{redirect_var}", target.to_s
         resp.set_cookie cookie_key, {
-          value: make_token, expires: Time.at(2**31-1),
+          value: token, expires: Time.at(2**31-1),
           secure: req.ssl?,  httponly: true,
         }
 
@@ -120,13 +129,18 @@ module LazyAuth
         end
 
         # return 401 if the cookie doesn't pick a user
-        user = @state.user_for token
-        warn user
+        user = @state.user_for token, cookie: true
+        unless user
+          resp.status = 401
+          resp.write "Could not find a user for token #{knock}."
+          return resp.finish
+        end
 
-        # resp.write 'lol i see yer cookie'
+        # stamp the token
+        @state.stamp_token token, req.ip
 
         # just set the variable
-        resp.set_header "Variable-#{user_var}", 'bob'
+        resp.set_header "Variable-#{user_var}", user
         
         # content-length has to be present but empty or it will crap out
         resp.set_header 'Content-Length', ''

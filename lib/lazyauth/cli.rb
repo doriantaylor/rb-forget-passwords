@@ -475,23 +475,17 @@ not meant to be authoritative storage for user profiles.
 
               url.query = URI::encode_www_form query
 
-              say "Give this link to #{user}: #{url}"
+              say "Here's the link to give to #{user} (and only #{user}): #{url}"
             else
-              say "No URL, so here's your token: #{token}"
+              say "No URL given, so here's your token: #{token}"
             end
+
+            exit 0
 
           rescue Sequel::DatabaseConnectionError => e
             say "Could not connect to #{@config[:dsn]}: #{e}"
             exit 1
           end
-
-          # merge defaults -> config b
-          #opts = merge_config opts
-
-
-          # create the user if the user does not exist
-
-          # complain if the url is not https
         end
       end
 
@@ -515,13 +509,18 @@ something like `mod_authnz_fcgi`.
         c.action do |args, opts|
           require 'lazyauth'
           require 'rack'
+
+          read_config
+          merge_config @config, cmdline_config(opts),
+            commit: true, validate: true
+          
           Rack::Server.start({
-            app: LazyAuth::App.new(opts.dsn || DEFAULTS[:dsn], debug: true),
+            app: LazyAuth::App.new(@config[:dsn], debug: @log_sql),
             server: 'fastcgi',
             environment: 'none',
             daemonize: opts.detach,
-            Host: 'localhost',
-            Port: 10101,
+            Host: @config[:listen],
+            Port: @config[:port],
           })
         end
       end

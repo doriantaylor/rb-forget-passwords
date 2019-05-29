@@ -62,6 +62,11 @@ module LazyAuth
               base
             end
 
+            def expire token
+              uuid = UUID::NCName::from_ncname token, version: 1
+              where(token: uuid).update(expires: S::CURRENT_TIMESTAMP)
+            end
+
             def expire_all cookie: nil
               base = where { expires > S::CURRENT_TIMESTAMP }
               base = base.where(slug: !cookie) unless cookie.nil?
@@ -273,7 +278,7 @@ module LazyAuth
 
       # obtain the last (newest) "fresh" token for this user
       row = @token.fresh(cookie: cookie, oneoff: oneoff).for(id).by_date.first
-      return UUID::NCNAME::to_ncname row.token, version: 1 if row
+      return UUID::NCName::to_ncname row.token, version: 1 if row
     end
 
     def expire_tokens_for principal, cookie: nil
@@ -284,15 +289,21 @@ module LazyAuth
 
     def user_for token, cookie: false
       uuid  = UUID::NCName::from_ncname token, version: 1
-      out   = @token.join(:user).select(S[:user][:principal], :expires).
-        where(token: uuid, slug: !cookie)
-      if out.first
-        out.first.principal
+      out  = @user.join(:token, user: :id).select(
+        :principal, :expires).where(token: uuid, slug: !cookie).first
+      if out
+        out.principal
       end
     end
 
-    def stamp_token token, ip, when: DateTime.now
+    def stamp_token token, ip, seen: DateTime.now
       uuid  = UUID::NCName::from_ncname token, version: 1
+      raise "Could not get UUID from token #{token}" unless uuid
+      @db.transaction do
+        unless (row = @usage[uuid, ip])
+          @usage.insert(token: uuid, ip: ip, seen: seen)
+        end
+      end
     end
   end
 end
