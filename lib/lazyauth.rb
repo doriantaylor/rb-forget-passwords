@@ -50,6 +50,8 @@ module LazyAuth
         user_var: 'FCGI_USER', redirect_var: 'FCGI_REDIRECT',
         expires: TWO_WEEKS, debug: false
 
+      @debug = debug
+
       @query_key    = query_key
       @cookie_key   = cookie_key
       @user_var     = user_var
@@ -59,6 +61,10 @@ module LazyAuth
     end
 
     def call env
+      # do surgery to request sceme
+      if env['REQUEST_SCHEME']
+        env['HTTPS'] = 'on' if env['REQUEST_SCHEME'].downcase == 'https'
+      end
       req  = Rack::Request.new env
       uri  = URI(req.base_url) + env['REQUEST_URI']
       resp = Rack::Response.new
@@ -70,6 +76,8 @@ module LazyAuth
       #   resp.body << "LazyAuth::App only works as a FastCGI authorizer!"
       #   return resp.finish
       # end
+
+      warn env.inspect if @debug
 
       # obtain the query string
       if (knock = req.GET[query_key])

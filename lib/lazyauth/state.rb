@@ -108,7 +108,7 @@ module LazyAuth
 
         },
         create: -> {
-          String   :token, null: false, unique: true, fixed: true, size: 36
+          String   :token, null: false, fixed: true, size: 36
           String   :ip,    null: false, size: 40
           DateTime :seen,  null: false, default: S::CURRENT_TIMESTAMP
           primary_key [:token, :ip], name: :pk_usage
@@ -292,7 +292,7 @@ module LazyAuth
       uuid  = UUID::NCName::from_ncname token, version: 1
       raise "Could not get UUID from token #{token}" unless uuid
       @db.transaction do
-        unless (row = @usage[uuid, ip])
+        unless (row = @usage.where(token: uuid, ip: ip).first)
           @usage.insert(token: uuid, ip: ip, seen: seen)
         end
       end

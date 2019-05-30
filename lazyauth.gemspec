@@ -5,7 +5,7 @@ require "lazyauth/version"
 
 Gem::Specification.new do |spec|
   spec.name        = "lazyauth"
-  spec.version     = LazyAuth:VERSION
+  spec.version     = LazyAuth::VERSION
   spec.authors     = ["Dorian Taylor"]
   spec.email       = ["code@doriantaylor.com"]
   spec.license     = 'Apache-2.0'
@@ -44,13 +44,20 @@ certain contexts, namely the ones the author of this gem is interested in.
   spec.required_ruby_version = '>= 2'
 
   # dev/test dependencies
-  spec.add_development_dependency "bundler", "~> 1.16"
-  spec.add_development_dependency "rake", "~> 10.0"
-  spec.add_development_dependency "rspec", "~> 3.0"
+  spec.add_development_dependency 'bundler', '~> 1.16'
+  spec.add_development_dependency 'rake',    '~> 10.0'
+  spec.add_development_dependency 'rspec',   '~> 3.0'
 
   # stuff we use
-  spec.add_runtime_dependency 'uuidtools', '~> 2.1.5'
+  spec.add_runtime_dependency 'commander',  '~> 4.4'
+  spec.add_runtime_dependency 'deep_merge', '~> 1.2'
+  spec.add_runtime_dependency 'dry-schema', '~> 1.0'
+  spec.add_runtime_dependency 'fcgi',       '~> 0.9'
+  spec.add_runtime_dependency 'iso8601',    '~> 0.12'
+  spec.add_runtime_dependency 'rack',       '~> 2.0'
+  spec.add_runtime_dependency 'sequel',     '~> 5.20'
+  spec.add_runtime_dependency 'uuidtools',  '~> 2.1'
 
   # stuff i wrote
-  spec.add_runtime_dependency 'uuid-ncname', '~> 0.2.2'
+  spec.add_runtime_dependency 'uuid-ncname', '~> 0.2'
 end
