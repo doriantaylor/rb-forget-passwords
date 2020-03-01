@@ -44,9 +44,9 @@ certain contexts, namely the ones the author of this gem is interested in.
   spec.required_ruby_version = '>= 2'
 
   # dev/test dependencies
-  spec.add_development_dependency 'bundler', '~> 1.16'
-  spec.add_development_dependency 'rake',    '~> 10.0'
-  spec.add_development_dependency 'rspec',   '~> 3.0'
+  spec.add_development_dependency 'bundler', '~> 2.1'
+  spec.add_development_dependency 'rake',    '~> 13.0'
+  spec.add_development_dependency 'rspec',   '~> 3.9'
 
   # stuff we use
   spec.add_runtime_dependency 'commander',  '~> 4.4'
