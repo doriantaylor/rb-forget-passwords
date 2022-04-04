@@ -8,7 +8,6 @@ require 'dry-schema'
 require 'deep_merge'
 
 module LazyAuth
-
   module Types
     include Dry::Types()
 
@@ -28,10 +27,11 @@ module LazyAuth
 
     ASCIIToken = Strict::String.constrained(format: ASCII).constructor(&:strip)
 
+    # XXX note this is a fail in dry-types
     URI = Types.Constructor(::URI) do |x|
       begin
-        out = URI(x)
-      rescue URI::InvalidURIError => e
+        out = ::URI.parse(x)
+      rescue ::URI::InvalidURIError => e
         raise Dry::Types::CoercionError.new e
       end
 
@@ -55,6 +55,9 @@ module LazyAuth
     Hostname = String.constructor(&:strip).constrained(format: HN)
   end
 
+  # XXX THIS IS A BAD SOLUTION TO THE URI PROBLEM
+  Dry::Schema::PredicateInferrer::Compiler.infer_predicate_by_class_name false
+
   Config = Dry::Schema.Params do
     required(:dsn).value    Types::String
     optional(:base).value   Types::URI
@@ -69,8 +72,10 @@ module LazyAuth
     end
 
     required(:vars).hash do
-      required(:user).filter(format?:     Types::ASCII).value Types::ASCIIToken
-      required(:redirect).filter(format?: Types::ASCII).value Types::ASCIIToken
+      required(:user).filter(
+        format?: Types::ASCII).value Types::ASCIIToken
+      required(:redirect).filter(
+        format?: Types::ASCII).value Types::ASCIIToken
     end
 
     required(:host).filter(format?: Types::HN).value Types::Hostname
@@ -131,10 +136,10 @@ module LazyAuth
         cfg = Pathname(cfg).expand_path
         if cfg.exist?
           raise "Config file #{cfg} is not readable" unless cfg.readable?
+          cfg = YAML.load_file cfg
         else
           cfg = {}
         end
-        cfg = YAML.load_file cfg
       end
 
       if clean
@@ -512,6 +517,9 @@ something like `mod_authnz_fcgi`.
           require 'lazyauth'
           require 'rack'
 
+          # booooo
+          require 'lazyauth/fastcgi'
+
           read_config
           merge_config @config, cmdline_config(opts),
             commit: true, validate: true
@@ -521,7 +529,7 @@ something like `mod_authnz_fcgi`.
 
           Rack::Server.start({
             app: LazyAuth::App.new(@config[:dsn], debug: @log_sql),
-            server: 'fastcgi',
+            server: 'hacked-fcgi',
             environment: 'none',
             daemonize: opts.detach,
             Host: @config[:host],

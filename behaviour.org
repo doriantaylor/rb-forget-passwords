@@ -1,0 +1,112 @@
+#+STARTUP: showall hidestars
+* behaviours
+** lazyauth authenticator
+   - [ ] if the request has a cookie with the specified key (eg ~lazyauth~)
+     - [ ] if it matches a valid (ie matching, non-expired) entry in the database
+       - [ ] set REMOTE_USER to whatever the user is
+         - [ ] email address ?
+     - [ ] otherwise return 403
+       - [ ] (give the user an opportunity to reenter)
+   - [ ] if the request-uri has the specified query parameter (eg ~knock~)
+     - [ ] if it matches an active nonce
+       - [ ] set-cookie to a new nonce
+       - [ ] redirect to itself
+     - [ ] otherwise return 403
+   - [ ] return 401 for all residual requests
+     - [ ] 401 page should say something like "this site is restricted to
+       people with certain email addresses; please enter your email
+       address"
+       - [ ] provide form input
+     - [ ] if the entry is found in the database
+       - [ ] go to confirmation page
+         - [ ] confirmation page is same url as whatever url was POSTed
+         - [ ] confirmation page says something like "check your
+           $EMAIL; you can close this window."
+     - [ ] otherwise return 403 (different 403 page)
+       - [ ] don't give anything away
+       - [ ] "your email address $EMAIL was not found on the access
+         list. if you think this is an error, contact $WHOEVER"
+*** confirmation process (that returns confirmation page)
+    - [ ] internally pipes out to whatever sends the email
+    - [ ] gonna need to know:
+      - [ ] the email address
+      - [ ] the domain
+      - [ ] the template
+    - [ ] gonna need to have some braking/throttling mechanism 
+** state mechanism
+   - [ ] store all the state information beyond the most basic
+     configuration that you would pass in on the command line
+*** user
+    - [ ] email should be the unique thing
+    - [ ] principal may be different but otherwise is same as email
+      - [ ] principal should also be unique
+    - [ ] 
+*** token
+    - [ ] map the tokens to the user
+*** usage
+    - [ ] log the ip of which token gets used by whom and when
+*** acl
+    - [ ] associate ~Host:~ header domain name with user
+      - [ ] via email address or domain
+    - [ ] 
+** cli
+   - [ ] runs the authenticator
+   - [ ] wraps the email drop thing whatever
+   - [ ] marshals operations on the state database 
+* components
+** template processor
+   - [ ] ideally this should be pluggable
+   - [ ] defaults packaged with and sourced from lazyauth package
+     - [ ] defaults can be overridden in command-line config
+     - [ ] command to disgorge copies of defaults into a directory
+       - (so they can be edited)
+*** (x?)html
+    - [ ] variables are processing instructions
+      - <?var EMAIL?>
+*** markdown?
+    - XXX how do we express variable substitutions?
+** email preparer
+   - make (x?)html and parallel text version
+   - wrap in mime whatever
+   - embed any images (godddddd)
+     - where do we put images?
+* templates
+  - [X] obtaining a magic link
+    - [X] put in your email (basic 401)
+    - [X] email wasn't on the list (403?)
+    - [X] problem sending email (500)
+    - [X] email sent, you can close this window and follow the link in
+      the email
+  - [X] bad token, you're gonna have to generate a new one (409)
+    - do we care about announcing the distinction between a bad token
+      in the query vs in the cookie?
+  - [ ] token doesn't match a user (403)
+    - likewise, do we care about the distinction between a malformed
+      token and a well-formed token that isn't in the database?
+    - what about if the token /did/ match a user?
+    - anyway you're gonna have to generate a new one so give the form
+  - [X] token expired/invalidated (401)
+    - you'll have to generate a new one
+  - [ ] you have been logged out
+    - [ ] your other sessions remain open
+    - [ ] all your other sessions are logged out as well
+    - log back in?
+  - [-] the email itself
+    - [X] html version
+    - [ ] text version
+* issues
+  - rack seems to have a problem transmitting error body content, i
+    hope to god it isn't some kind of i/o voodoo
+    - okay it has to do with ~Rack::Handler::FastCGI~ running
+      ~out.flush~ when vanilla fcgi can just...not do that
+    - *HOWEVER* it is not unreasonable for rack to do this so the bad
+      actor here is ~mod_authnz_fcgi~
+    - https://bz.apache.org/bugzilla/show_bug.cgi?id=65984
+  - ~mod_authnz_fcgi~ kinda sucks but it's *almost* good
+    - i mean it's just a barely-fitting solution
+    - also fastcgi is out of style with the kids
+    - so is apache for that matter
+  - also the error handler seems to overwrite ~Content-Type~ with
+    whatever is in the standard error page
+    - so that'll have to get overwritten in config
+    - 

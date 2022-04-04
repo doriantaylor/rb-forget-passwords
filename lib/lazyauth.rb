@@ -11,6 +11,7 @@ module LazyAuth
   class App
     require 'time'
     require 'uri'
+    require 'rack'
     require 'rack/request'
     require 'rack/response'
 
@@ -88,11 +89,11 @@ module LazyAuth
           return resp.finish
         end
 
-        # return 401 if the knock parameter doesn't pick a user
+        # return 403 if the knock parameter doesn't pick a user
 
         user = @state.user_for knock
         unless user
-          resp.status = 401
+          resp.status = 403
           resp.write "Could not find a user for token #{knock}."
           return resp.finish
         end
@@ -131,10 +132,10 @@ module LazyAuth
           return resp.finish
         end
 
-        # return 401 if the cookie doesn't pick a user
+        # return 403 if the cookie doesn't pick a user
         user = @state.user_for token, cookie: true
         unless user
-          resp.status = 401
+          resp.status = 403
           resp.write "Could not find a user for token #{knock}."
           return resp.finish
         end
@@ -150,7 +151,12 @@ module LazyAuth
       else
         # return 401
         resp.status = 401
-        resp.write 'boo hoo'
+        resp.set_header 'Content-Type', 'text/plain'
+        out = (['boo hoo'] * 1025).join(' ')
+        resp.set_header 'Content-Length', out.b.length.to_s
+        resp.write out
+        warn 'doublyou tee eff'
+        return resp.finish
       end
 
       resp.finish

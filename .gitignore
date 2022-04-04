@@ -17,3 +17,5 @@ lazyauth.sqlite
 
 # uh gems?
 *.gem
+
+Gemfile.lock
