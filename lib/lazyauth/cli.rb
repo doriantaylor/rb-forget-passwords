@@ -472,7 +472,7 @@ not meant to be authoritative storage for user profiles.
             if url
               if (query = url.query)
                 query = URI::decode_www_form query
-              else 
+              else
                 query = []
               end
 

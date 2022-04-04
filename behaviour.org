@@ -87,8 +87,8 @@
     - anyway you're gonna have to generate a new one so give the form
   - [X] token expired/invalidated (401)
     - you'll have to generate a new one
-  - [ ] you have been logged out
-    - [ ] your other sessions remain open
+  - [-] you have been logged out
+    - [X] your other sessions remain open
     - [ ] all your other sessions are logged out as well
     - log back in?
   - [-] the email itself
