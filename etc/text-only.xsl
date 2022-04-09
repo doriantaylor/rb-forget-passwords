@@ -5,7 +5,7 @@
    xmlns:x="urn:x-dummy"
    exclude-result-prefixes="html x">
 
-<xsl:output method="text" media-type="text/plain"/>
+<xsl:output method="text" media-type="text/plain" omit-xml-declaration="yes"/>
 
 <xsl:strip-space elements="*"/>
 
@@ -32,9 +32,9 @@
 <!-- link text <https://...> -->
 <xsl:template match="a[@href]|html:a[@href]">
 <xsl:apply-templates/>
-<xsl:text> &lt;</xsl:text>
+<xsl:text disable-output-escaping="yes"> &lt;</xsl:text>
 <xsl:value-of select="normalize-space(@href)"/>
-<xsl:text> &gt;</xsl:text>
+<xsl:text disable-output-escaping="yes">&gt; </xsl:text>
 </xsl:template>
 
 <x:headings>
@@ -59,7 +59,7 @@
 <xsl:variable name="text">
   <xsl:apply-templates/>
 </xsl:variable>
-<xsl:value-of select="$text"/>
+<xsl:value-of select="$text" disable-output-escaping="yes"/>
 <xsl:if test="string-length(normalize-space($text))">
 <xsl:text>
 </xsl:text>
@@ -82,7 +82,7 @@
 <xsl:variable name="vws"
   select="'&#x09;&#x0a;&#x0d;&#x85;&#xa0;&#x2028;&#x2029;'"/>
 
-<xsl:template match="text()[normalize-space(.) != '']">
+<xsl:template match="text()">
 <xsl:variable name="_" select="translate(., $vws, ' ')"/>
 <xsl:variable name="starts-with-ws" select="starts-with($_, ' ')"/>
 <xsl:variable name="ends-with-ws"
@@ -91,7 +91,7 @@
 <xsl:if test="$starts-with-ws">
 <xsl:text> </xsl:text>
 </xsl:if>
-<xsl:value-of select="normalize-space($_)"/>
+<xsl:value-of select="normalize-space($_)" disable-output-escaping="yes"/>
 <xsl:if test="$ends-with-ws">
 <xsl:text> </xsl:text>
 </xsl:if>

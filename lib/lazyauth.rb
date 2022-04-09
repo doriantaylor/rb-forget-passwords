@@ -114,7 +114,20 @@ module LazyAuth
     # @return [URI] the new URI
     #
     def make_login_link uri, token
-      @
+      key = @keys[:query].to_s
+      # strip off any old one
+      query = URI.decode_www_form(uri.query || '').reject do |pair|
+        pair.first == key
+      end
+
+      # append the new one
+      query << [key, token]
+
+      # add to uri
+      uri = uri.dup
+      uri.query = URI.encode_www_form query
+
+      uri
     end
 
     # Return an absolute request-URI from the Rack::Request.
@@ -139,7 +152,7 @@ module LazyAuth
       uri = uri.dup
       key = key.map(&:to_s)
 
-      query = URI.decode_www_form(uri.query).reject do |pair|
+      query = URI.decode_www_form(uri.query || '').reject do |pair|
         key.include? pair.first
       end
       uri.query = query.empty? ? nil : URI.encode_www_form(query)
@@ -154,7 +167,10 @@ module LazyAuth
       !!UUID::NCName.valid?(token)
     end
 
+    # Expire a token.
+    #
     def expire token
+      @state.token.expire token
     end
 
     # Extract an e-mail address from a string, or otherwise return nil.
@@ -179,10 +195,11 @@ module LazyAuth
       # set up the variables
       uri = req_uri req
       vars = {
-        URL:       uri,
-        KNOCK_URL: make_login_link(uri, token),
-        DOMAIN:    req.base_url.host,
-        EMAIL:     address.to_s,
+        URL:        uri.to_s,
+        PRETTY_URL: uri.to_s.sub(/^https?:\/\/(.*)\/?$/i, "\1"),
+        KNOCK_URL:  make_login_link(uri, token),
+        DOMAIN:     req.base_url.host,
+        EMAIL:      address.to_s,
       }
 
       # grab the template since we'll use it
@@ -190,18 +207,19 @@ module LazyAuth
 
       # process the templates
       doc = template.process vars
-      sj  = (doc.xpath('(//title|//html:title)[1]', XPATHNS) || []).first
+      sub = doc.xpath('normalize-space((//title|//html:title)[1])', XPATHNS)
 
       html = template.serialize doc, { 'Content-Type' => 'text/html' }
       text = template.serialize doc, { 'Content-Type' => 'text/plain' }
 
-      msg = Mail.new do
-        from @email
+      Mail.new do
+        from @email[:from]
         to address
-        subject subject
+        subject sub
         html_part html
         text_part text
-      end
+        delivery_method @email[:method], **(@email[:options] || {})
+      end.deliver
     end
 
     # @!group Actual Handlers
@@ -293,7 +311,7 @@ module LazyAuth
       end
 
       # check the email against the list
-      unless @state.listed? uri, address
+      unless @state.acl.listed? uri, address
         resp.status = 401
         @templates[:email_not_listed].populate resp, req
         raise LazyAuth::ErrorResponse, resp

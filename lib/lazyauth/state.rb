@@ -3,6 +3,7 @@ require 'sequel'
 require 'iso8601'
 require 'uuidtools'
 require 'uuid-ncname'
+require 'uri'
 
 module LazyAuth
   class State
@@ -85,7 +86,7 @@ module LazyAuth
           primary_key [:token], name: :pk_token
           unique [:token, :user], name: :uk_token
           foreign_key [:user], :user,  key: :id, name: :fk_token_user
-          constraint :ck_token, 
+          constraint :ck_token,
           :token => S.function(:trim, S.function(:lower, :token))
         },
       },
@@ -115,9 +116,64 @@ module LazyAuth
           foreign_key [:token], :token, name: :fk_usage_token
         },
       },
+      acl: {
+        class: :ACL,
+        model: -> m {
+
+          def m.listed? domain, email
+            # normalize the inputs
+            domain = (
+              domain.respond_to?(:host) ? domain.host : domain).strip.downcase
+            email = email.to_s.strip.downcase
+            _, mx = email.split ?@, 2
+            mparts = mx.split ?.
+
+            # we start from the most specific domain from the request-uri
+            dparts = domain.split ?.
+            (0..dparts.length).each do |i|
+              d = dparts[i..dparts.length].join ?.
+              # then we try to get an exact match on the address
+              if x = where(domain: d, address: email).first
+                return x.ok
+              else
+                # then we try to get a match on the *address's* domain
+                # (note we leave one segment)
+                (0..mparts.length-1).each do |j|
+                  md = mparts[j..mparts.length]
+                  if y = where(domain: d, address: md).first
+                    return y.ok
+                  end
+                end
+              end
+            end
+
+            false
+          end
+
+          def m.permit domain, email, force: false
+          end
+
+          def m.revoke domain, email, force: false
+          end
+
+          def m.forget domain, email
+          end
+
+        },
+        create: -> {
+          String :domain, null: false, text: true, default: ''
+          String :address, null: false, text: true
+          TrueClass :ok, null: false, default: true
+          DateTime :seen,  null: false, default: S::CURRENT_TIMESTAMP
+          constraint(:domain_lc)  { domain  == trim(lower(domain)) }
+          constraint(:address_lc) { address == trim(lower(address)) }
+          constraint(:address_ne) { trim(address) != '' }
+        },
+      },
     }
 
-    CREATE_SEQ = %w(user token usage).map(&:to_sym).freeze
+    # XXX this constant is arguably not necessary but ehh
+    CREATE_SEQ = DISPATCH.keys.freeze
 
     def create_tables force: false
 
@@ -156,7 +212,7 @@ module LazyAuth
 
           # set @whatever; i haven't decided if i want to dump these yet
           self.instance_variable_set "@#{table.to_s}".to_sym, cls
-          
+
           # assemble the innards
           struct[:model].call cls
         end
@@ -168,7 +224,7 @@ module LazyAuth
 
     public
 
-    attr_reader :db, :user, :token, :usage
+    attr_reader :db, :user, :token, :usage, :acl
 
     def initialize dsn, create: true,
         query_expires: ONE_YEAR, cookie_expires: ONE_YEAR, debug: false
@@ -197,7 +253,7 @@ module LazyAuth
     end
 
     def id_for principal, create: false, email: nil
-      ds  = @user.select(:id).where(principal: principal) 
+      ds  = @user.select(:id).where(principal: principal)
       row = ds.first
 
       if create
@@ -230,7 +286,7 @@ module LazyAuth
       raise "No user with ID #{principal} found" unless id
 
       # this should be a duration
-      raise 'Expires should be an ISO8601::Duration' if 
+      raise 'Expires should be an ISO8601::Duration' if
         expires && !expires.is_a?(ISO8601::Duration)
       expires ||= @expiry[cookie ? :cookie : :query]
 
@@ -243,7 +299,7 @@ module LazyAuth
       expires = now +
         (expires.to_seconds(ISO8601::DateTime.new now.iso8601) / 86400.0)
       # anyway an integer to DateTime is a day, so we divide.
-      
+
       uuid = UUIDTools::UUID.random_create
 
       @token.insert(user: id, token: uuid.to_s, slug: !cookie,
