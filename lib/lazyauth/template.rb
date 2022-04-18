@@ -1,6 +1,7 @@
 require 'nokogiri'
 require 'xml-mixup'
 require 'http-negotiate'
+require 'lazyauth/types'
 
 module LazyAuth
 
@@ -26,11 +27,31 @@ module LazyAuth
         key.to_s.strip.downcase.gsub(/[[:space:]-]/, ?_).tr_s(?_, ?_).to_sym
       end
 
+      TType = LazyAuth::Types.Instance(LazyAuth::Template)
+
+      THash = LazyAuth::Types::Hash.map(LazyAuth::Types::NormSym,
+        LazyAuth::Types::String).default { {} }
+
+      RawParams = LazyAuth::Types::SymbolHash.schema(
+        path:       LazyAuth::Types::AbsolutePathname.default(DEFAULT_PATH),
+        mapping:    THash,
+        base?:      LazyAuth::Types::URI,
+        transform?: LazyAuth::Types::URI,
+      ).hash_default
+
       public
+
+      Type = LazyAuth::Types.Constructor(self) do |input|
+        # what we're gonna do is validate the input as a hash, then use it
+        input = RawParams.(input)
+        path = input.delete :path
+        self.new(path, **input)
+      end
 
       attr_reader :path, :base
 
-      def initialize path = DEFAULT_PATH, base: nil, templates: {}
+      def initialize path = DEFAULT_PATH, base: nil,
+          transform: nil, mapping: {}
         @path      = Pathname(path).expand_path
         @base      = base
         @templates = templates.map do |k, v|
@@ -45,6 +66,12 @@ module LazyAuth
         @templates[normalize key]
       end
 
+      def []= key, path
+        name = normalize key
+        @templates[name] = path.is_a?(LazyAuth::Template) ? path :
+          LazyAuth::Template.new(self, key, @path + path)
+      end
+
       def manifest
         @templates.keys
       end
@@ -56,6 +83,7 @@ module LazyAuth
       # @return [true, false]
       #
       def verify *names
+        names = names.first if names.first.is_a? Array
         # i dunno, is there a better way to do this?
         (names.map { |k| normalize k } - manifest).empty?
       end
@@ -128,7 +156,7 @@ module LazyAuth
     #
     # @return [Nokogiri::XML::Document] the altered document
     #
-    def process vars = {}
+    def process vars = {}, base: nil
       # sub all the placeholders for variables
       doc = @doc.dup
 
@@ -136,7 +164,7 @@ module LazyAuth
       doc.create_internal_subset('html', nil, nil) unless doc.internal_subset
 
       # set the base URI
-      if base = mapper.base
+      if base ||= mapper.base
         if b = doc.at_xpath('(/html:html/html:head/html:base)[1]', XPATHNS)
           # check for a <base href="..."/> already
           b['href'] = base.to_s

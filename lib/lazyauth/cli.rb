@@ -1,87 +1,15 @@
 require 'lazyauth/state'
-require 'pathname'
 require 'commander'
 require 'yaml'
+require 'pathname'
 require 'iso8601'
 require 'uri'
 require 'dry-schema'
 require 'deep_merge'
 
+require 'lazyauth/types'
+
 module LazyAuth
-  module Types
-    include Dry::Types()
-
-    Duration = Types.Constructor(ISO8601::Duration) do |x|
-      begin
-        out = ISO8601::Duration.new x.to_s.strip.upcase
-      rescue ISO8601::Errors::UnknownPattern => e
-        raise Dry::Types::CoercionError.new e
-      end
-
-      out
-    end
-
-    ASCII = /^[A-Za-z_][0-9A-Za-z_.-]*$/
-
-    # okay so this shit doesn't seem to work
-
-    ASCIIToken = Strict::String.constrained(format: ASCII).constructor(&:strip)
-
-    # XXX note this is a fail in dry-types
-    URI = Types.Constructor(::URI) do |x|
-      begin
-        out = ::URI.parse(x)
-      rescue ::URI::InvalidURIError => e
-        raise Dry::Types::CoercionError.new e
-      end
-
-      out
-    end
-
-    # should be WritablePathname but whatever
-    Pathname = Types.Constructor(::Pathname) do |x|
-      out = Pathname(x)
-      dir = out.expand_path.dirname
-      raise Dry::Types::CoercionError.new "#{dir} is not writable" unless
-        dir.writable?
-      raise Dry::Types::CoercionError.new "#{out} can't be overwritten" if
-        out.exist? and !out.writable?
-      out
-    end
-    # actually pretty sure i can define constraints for this type, oh well
-
-    HN = /^(?:[0-9a-z-]+(?:\.[0-9a-z-]+)*|[0-9a-f]{,4}(?::[0-9a-f]{,4}){,7})$/i
-
-    Hostname = String.constructor(&:strip).constrained(format: HN)
-  end
-
-  # XXX THIS IS A BAD SOLUTION TO THE URI PROBLEM
-  Dry::Schema::PredicateInferrer::Compiler.infer_predicate_by_class_name false
-
-  Config = Dry::Schema.Params do
-    required(:dsn).value    Types::String
-    optional(:base).value   Types::URI
-    # whaaaaat the f the friggin type decl is supposed to take care of this
-    required(:query).filter(format?:  Types::ASCII).value Types::ASCIIToken
-    required(:cookie).filter(format?: Types::ASCII).value Types::ASCIIToken
-    #required(:cookie).value Types::ASCIIToken
-
-    required(:expiry).hash do
-      required(:url).value    Types::Duration
-      required(:cookie).value Types::Duration
-    end
-
-    required(:vars).hash do
-      required(:user).filter(
-        format?: Types::ASCII).value Types::ASCIIToken
-      required(:redirect).filter(
-        format?: Types::ASCII).value Types::ASCIIToken
-    end
-
-    required(:host).filter(format?: Types::HN).value Types::Hostname
-    required(:port).value Types::Integer
-    optional(:pid).value Types::Pathname
-  end
 
   class CLI
     include Commander::Methods
@@ -101,6 +29,12 @@ module LazyAuth
       host:   'localhost',
       port:   10101,
     }.freeze
+
+    Config = Dry::Schema.Params do
+      optional(:host).value LazyAuth::Types::Hostname.default('localhost')
+      optional(:port).value Dry::Types::Integer.default(10101)
+      optional(:pid).value LazyAuth::Types::AbsolutePathname
+    end & LazyAuth::App::Config
 
     def normalize_hash h, strings: false, flatten: false, dup: false,
         freeze: false

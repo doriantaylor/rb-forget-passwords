@@ -5,8 +5,30 @@ require 'uuidtools'
 require 'uuid-ncname'
 require 'uri'
 
+require 'lazyauth/types'
+
 module LazyAuth
   class State
+
+    TEN_MINUTES = ISO8601::Duration.new('PT10M').freeze
+    TWO_WEEKS   = ISO8601::Duration.new('P2W').freeze
+
+    Expiry = LazyAuth::Types::SymbolHash.schema(
+      url:    LazyAuth::Types::Duration.default(TEN_MINUTES),
+      cookie: LazyAuth::Types::Duration.default(TWO_WEEKS)).hash_default
+
+    RawParams = LazyAuth::Types::SymbolHash.schema(
+      dsn:       LazyAuth::Types::String,
+      user?:     LazyAuth::Types::String,
+      password?: LazyAuth::Types::String,
+      expiry:    Expiry).hash_default
+
+    Type = LazyAuth::Types.Constructor(self) do |x|
+      raw = RawParams.(x)
+      dsn = raw.delete :dsn
+      self.new dsn, **raw
+    end
+
     private
 
     S = Sequel
@@ -26,10 +48,16 @@ module LazyAuth
         create: -> {
           # need to write it this way if you want the pk to auto-increment
           primary_key :id, type: Integer, primary_key_constraint_name: :pk_user
-          String   :principal, null: false, unique: true
-          String   :email,     null: false, default: ''
+          String   :principal, null: false, text: true, unique: true
+          String   :email,     null: false, text: true, unique: true
           DateTime :added,     null: false, default: S::CURRENT_TIMESTAMP
           DateTime :disabled,  null: true
+          constraint :ck_principal, principal: S.function(:trim, :principal)
+          constraint(:ck_principal_ne) {
+            S.function(:length, S.function(:trim, :principal)) > 0 }
+          constraint :ck_email,
+          email: S.function(:trim, S.function(:lower, :email))
+          constraint(:ck_email_at) { S.like(:email, '%_@_%') }
         },
       },
       token: {
@@ -43,13 +71,20 @@ module LazyAuth
             where { expires < date }
           end
 
-
           m.dataset_module do
             where(:expired) { expires < S::CURRENT_TIMESTAMP }
             order :by_date, :added, :expires, :user
 
             def for id
               where(user: id)
+            end
+
+            def id_for token
+              uuid = UUID::NCName.valid?(token) ?
+                UUID::NCName.from_ncname(token) : token
+
+              rec = where(token: uuid).first
+              rec.user if rec
             end
 
             def fresh cookie: false, oneoff: false
@@ -120,6 +155,8 @@ module LazyAuth
         class: :ACL,
         model: -> m {
 
+          # XXX TAKE INTO ACCOUNT user.disabled
+
           def m.listed? domain, email
             # normalize the inputs
             domain = (
@@ -132,6 +169,8 @@ module LazyAuth
             dparts = domain.split ?.
             (0..dparts.length).each do |i|
               d = dparts[i..dparts.length].join ?.
+              warn "trying #{email} on #{d}"
+
               # then we try to get an exact match on the address
               if x = where(domain: d, address: email).first
                 return x.ok
@@ -139,7 +178,8 @@ module LazyAuth
                 # then we try to get a match on the *address's* domain
                 # (note we leave one segment)
                 (0..mparts.length-1).each do |j|
-                  md = mparts[j..mparts.length]
+                  md = mparts[j..mparts.length].join ?.
+                  warn "trying #{md} on #{d}"
                   if y = where(domain: d, address: md).first
                     return y.ok
                   end
@@ -151,12 +191,31 @@ module LazyAuth
           end
 
           def m.permit domain, email, force: false
+            # insert or update
+            domain = (
+              domain.respond_to?(:host) ? domain.host : domain).strip.downcase
+            email = email.to_s.strip.downcase
+            rows = where(domain: domain, address: email).update ok: true
+            return true unless rows == 0
+            insert domain: domain, address: email
+            true
           end
 
           def m.revoke domain, email, force: false
+            # update, noop if not present?
+            domain = (
+              domain.respond_to?(:host) ? domain.host : domain).strip.downcase
+            email = email.to_s.strip.downcase
+            rows = where(domain: domain, address: email).update ok: false
+            rows != 0 # if this is true then the record was updated
           end
 
           def m.forget domain, email
+            domain = (
+              domain.respond_to?(:host) ? domain.host : domain).strip.downcase
+            email = email.to_s.strip.downcase
+            rows = where(domain: domain, address: email).delete
+            rows != 0
           end
 
         },
@@ -165,9 +224,12 @@ module LazyAuth
           String :address, null: false, text: true
           TrueClass :ok, null: false, default: true
           DateTime :seen,  null: false, default: S::CURRENT_TIMESTAMP
-          constraint(:domain_lc)  { domain  == trim(lower(domain)) }
-          constraint(:address_lc) { address == trim(lower(address)) }
-          constraint(:address_ne) { trim(address) != '' }
+          constraint :ck_domain,
+          domain: S.function(:trim, S.function(:lower, :domain))
+          constraint :ck_address,
+          address: S.function(:trim, S.function(:lower, :address))
+          constraint(:ck_address_ne) {
+            S.function(:length, S.function(:trim, :address)) > 0 }
         },
       },
     }
@@ -203,19 +265,23 @@ module LazyAuth
 
       DISPATCH.each do |table, struct|
         cname = struct[:class]
-        unless me.const_defined? cname
+        if me.const_defined? cname
+          cls = me.const_get cname
+        else
           # create the class
           cls = Class.new Sequel::Model(db[table])
 
           # bind the class name
           me.const_set cname, cls
 
-          # set @whatever; i haven't decided if i want to dump these yet
-          self.instance_variable_set "@#{table.to_s}".to_sym, cls
-
           # assemble the innards
           struct[:model].call cls
         end
+
+        # set @whatever; i haven't decided if i want to dump these yet
+        var = "@#{table.to_s}".to_sym
+        self.instance_variable_set(var, cls) unless
+          instance_variable_defined? var
       end
 
     end
@@ -226,11 +292,11 @@ module LazyAuth
 
     attr_reader :db, :user, :token, :usage, :acl
 
-    def initialize dsn, create: true,
-        query_expires: ONE_YEAR, cookie_expires: ONE_YEAR, debug: false
+    def initialize dsn, create: true, user: nil, password: nil,
+        expiry: { query: TEN_MINUTES, cookie: TWO_WEEKS }, debug: false
       @db = Sequel.connect dsn
 
-      @expiry = { query: query_expires, cookie: cookie_expires }
+      @expiry = expiry
 
       if debug
         require 'logger'
@@ -252,33 +318,58 @@ module LazyAuth
       @db.transaction(&block)
     end
 
-    def id_for principal, create: false, email: nil
+    # XXX 2022-04-10 the email address is canonical now, lol
+
+    def record_for principal, create: false, email: nil
+      # so we can keep the same interface
+      if principal
+        # ensure this is a stripped string
+        principal = principal.to_s.strip
+        raise ArgumentError,
+          'principal cannot be an empty string' if principal.empty?
+      else
+        raise ArgumentError,
+          'email must be defined if principal is not' unless email
+        # note we don't normalize case for the principal (may be dumb tbh)
+        principal = email.to_s.strip
+      end
+
       ds  = @user.select(:id).where(principal: principal)
       row = ds.first
 
       if create
+        if email
+          email = email.to_s.strip.downcase
+          raise ArgumentError,
+            "email must be a valid address, not #{email}" unless
+            email.include? ?@
+        elsif principal.include? ?@
+          email = principal.dup
+        else
+          raise ArgumentError,
+            'principal must be an email address if another not supplied'
+        end
+
         if row
           row = @user[row.id]
-
-          if email
-            row.email = email
-            row.save
-          end
-
-          return row.id
+          row.email = email
+          row.save
         else
-          row = { principal: principal }
-          row[:email] = email if email
-
+          row = { principal: principal, email: email  }
           row = @user.new.set(row).save
         end
       end
 
-      row.id if row
+      row
     end
 
-    def new_user principal, email: ''
-      @user
+    def id_for principal, create: true, email: nil
+      user = record_for principal, create: create, email: email
+      user.id if user
+    end
+
+    def new_user principal, email: nil
+      record_for principal, create: true, email: email
     end
 
     def new_token principal, cookie: false, oneoff: false, expires: nil
@@ -329,28 +420,50 @@ module LazyAuth
       return UUID::NCName::to_ncname row.token, version: 1 if row
     end
 
+    # Expire all cookies associated with a principal.
+    #
+    # @param
+    # @param
+    #
+    # @return
+    #
     def expire_tokens_for principal, cookie: nil
       id = principal.is_a?(Integer) ? principal : id_for(principal)
       raise "No user with ID #{principal} found" unless id
       @token.for(id).expire_all cookie: cookie
     end
 
-    def user_for token, cookie: false
-      uuid  = UUID::NCName::from_ncname token, version: 1
+    # Retrieve the user associated with a token, whether nonce or cookie.
+    #
+    # @param token [String] the token
+    # @param id [false, true] the user ID instead of the principal
+    # @param cookie [false, true] whether the token is a cookie
+    #
+    # @return [String, nil] the user principal identifier or nil
+    #
+    def user_for token, id: false, cookie: false
+      uuid = UUID::NCName::from_ncname token, version: 1
       out  = @user.join(:token, user: :id).select(
         :principal, :expires).where(token: uuid, slug: !cookie).first
-      if out
-        out.principal
-      end
+
+      id ? out.id : out.principal if out
     end
 
+    # Add a token to the usage log and associate it with an
+    # IP address.
+    #
+    # @param token [String] the token
+    # @param ip [String] the IP address that used
+    # @param seen [DateTime] The timestamp (defaults to now).
+    #
+    # @return [LazyAuth::State::Usage] the token's usage record
+    #
     def stamp_token token, ip, seen: DateTime.now
       uuid  = UUID::NCName::from_ncname token, version: 1
       raise "Could not get UUID from token #{token}" unless uuid
       @db.transaction do
-        unless (row = @usage.where(token: uuid, ip: ip).first)
+        @usage.where(token: uuid, ip: ip).first ||
           @usage.insert(token: uuid, ip: ip, seen: seen)
-        end
       end
     end
   end

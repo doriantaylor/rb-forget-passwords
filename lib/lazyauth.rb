@@ -1,7 +1,11 @@
 require 'lazyauth/version'
+require 'lazyauth/types'
 require 'lazyauth/state'
 require 'lazyauth/template'
 require 'uuid-ncname'
+
+require 'dry-types'
+require 'dry-schema'
 
 require 'rack'
 require 'rack/request'
@@ -92,7 +96,8 @@ module LazyAuth
 
     private
 
-    TWO_WEEKS = ISO8601::Duration.new('P2W').freeze
+    TEN_MINUTES = ISO8601::Duration.new('PT10M').freeze
+    TWO_WEEKS   = ISO8601::Duration.new('P2W').freeze
 
     XPATHNS = { html: 'http://www.w3.org/1999/xhtml' }.freeze
 
@@ -115,7 +120,7 @@ module LazyAuth
     #
     def make_login_link uri, token
       key = @keys[:query].to_s
-      # strip off any old one
+      # strip off any old key(s) that might be present
       query = URI.decode_www_form(uri.query || '').reject do |pair|
         pair.first == key
       end
@@ -188,13 +193,18 @@ module LazyAuth
       end
     end
 
-    # Send the e-mail containing the link.
+    # Send the e-mail containing the link to log in.
     #
+    # @param req [Rack::Request] the HTTP request object
+    # @param address [#to_s] the principal's e-mail address
+    #
+    # @return [Mail::Message] the message sent to the address.
     #
     def send_link req, address
       # set up the variables
-      uri = req_uri req
-      vars = {
+      uri   = req_uri req
+      token = @state.new_token address, oneoff: true
+      vars  = {
         URL:        uri.to_s,
         PRETTY_URL: uri.to_s.sub(/^https?:\/\/(.*)\/?$/i, "\1"),
         KNOCK_URL:  make_login_link(uri, token),
@@ -213,11 +223,11 @@ module LazyAuth
       text = template.serialize doc, { 'Content-Type' => 'text/plain' }
 
       Mail.new do
-        from @email[:from]
-        to address
-        subject sub
-        html_part html
-        text_part text
+        from            @email[:from]
+        to              address
+        subject         sub
+        html_part       html
+        text_part       text
         delivery_method @email[:method], **(@email[:options] || {})
       end.deliver
     end
@@ -243,13 +253,13 @@ module LazyAuth
       @state.stamp_token knock, req.ip
 
       # remove existing cookie
-      if (token = req.cookies[cookie_key])
+      if (token = req.cookies[@keys[:cookie]])
         @state.token.expire token
-        resp.delete_cookie cookie_key, { value: token }
+        resp.delete_cookie @keys[:cookie], { value: token }
       end
 
       uri    = req_uri req
-      target = uri_minus_query uri, query_key
+      target = uri_minus_query uri, @keys[:query]
 
       # we never use the knock token again so we can overwrite it with
       # a new cookie
@@ -258,7 +268,7 @@ module LazyAuth
       # set the user and redirect location as variables
       resp.set_header "Variable-#{user_var}", user
       resp.set_header "Variable-#{redirect_var}", target.to_s
-      resp.set_cookie cookie_key, {
+      resp.set_cookie @keys[:cookie], {
         value: token, expires: Time.at(2**31-1),
         secure: req.ssl?,  httponly: true,
       }
@@ -277,7 +287,7 @@ module LazyAuth
 
       unless token_ok? token
         resp.status = 409
-        @templates[:cookie].populate resp, req
+        @templates[:cookie_bad].populate resp, req
         raise LazyAuth::ErrorResponse, resp
       end
 
@@ -304,11 +314,13 @@ module LazyAuth
       resp = Rack::Response.new
 
       # obtain the email address from the form
-      unless address = email_in(req.POST[email_key])
+      unless address = email_in(req.POST[@keys[:email]])
         resp.status = 409
         @templates[:email_bad].populate resp, req
         raise LazyAuth::ErrorResponse, resp
       end
+
+      # XXX TODO wrap this business in a transaction like an adult?
 
       # check the email against the list
       unless @state.acl.listed? uri, address
@@ -321,15 +333,26 @@ module LazyAuth
       # target with emails; return either 429 (too many requests) or
       # perhaps the new code 425 (too early)
 
+      # find or create the user based on the email (this should never
+      # fail, except internally)
+      @state.new_user email
+
       # send the email
-      unless send_link address
+      begin
+        send_link req, address
+      rescue StandardError => e
+        # XXX generic logger???
+        warn e.inspect
+
+        # anyway,,,
         resp.status = 500
         @templates[:email_failed].populate resp, req
         raise LazyAuth::ErrorResponse, resp
       end
 
       # return 401 still but with 'check email' body
-      @templates[:default_401].populate resp, req
+      resp.status = 401
+      @templates[:email_sent].populate resp, req
     end
 
     def handle_logout req, all
@@ -337,26 +360,38 @@ module LazyAuth
 
       resp = Rack::Response.new
 
-      if token = req.cookies[cookie_key]
-        # invalidate the token associated with the cookie
-        @state.token.expire token
+      # this does the actual "logging out"
+      if token = req.cookies[@keys[:cookie]]
+        if all and id = @state.token.id_for(token)
+          # nuke all the cookies for the id
+          @state.expire_tokens_for id
+        else
+          # invalidate the token associated with the cookie
+          @state.token.expire token
+        end
         # clear the cookie
-        resp.delete_cookie cookie_key, { value: token }
+        resp.delete_cookie @keys[:cookie], { value: token }
       end
+
+      # otherwise this thing will pretend like you're logging out even
+      # if you were never logged in
 
       # we do when we actually process the token in the query string
       resp.status   = 303
-      resp.location = (req.base_url +
+      resp.location = (req_uri(req) +
         @targets[all ? :logout_one : :logout_all]).to_s
 
       resp
     end
 
     def handle_post req
-      if logout = req.POST[logout_key]
+      if logout = req.POST[@keys[:logout]]
         handle_logout req, logout
-      elsif email = req.POST[email_key]
+      elsif email = req.POST[@keys[:email]]
         handle_login req, email
+      elsif token = req.cookies[@keys[:cookie]]
+        # next check for a cookie
+        handle_cookie req, token
       else
         default_401 req
       end
@@ -364,39 +399,148 @@ module LazyAuth
 
     # @!endgroup
 
-    public
-
     # we want all these constants to be public so they show up in the docs
     DEFAULT_KEYS = { query: 'knock', cookie: 'lazyauth',
       email: 'email', logout: 'logout' }.freeze
     DEFAULT_VARS = { user: 'FCGI_USER', redirect: 'FCGI_REDIRECT'}.freeze
-    DEFAULT_PATH = (Pathname(__FILE__) + '../content').expand_path.freeze
-    DEFAULT_MAIL = {
-      type: :smtp, from: nil, host: 'localhost', port: 25 }.freeze
+    DEFAULT_PATH = (Pathname(__FILE__) + '../../content').expand_path.freeze
+    DEFAULT_EXP  = { url: TEN_MINUTES, cookie: TWO_WEEKS }.freeze
 
-    attr_reader :query_key, :cookie_key, :email_key, :logout_key,
-      :user_var, :redirect_var
+    SH = LazyAuth::Types::SymbolHash
+    AT = LazyAuth::Types::ASCIIToken
 
+    Keys = SH.schema(
+      query:  AT.default('knock'.freeze),
+      cookie: AT.default('lazyauth'.freeze),
+      email:  AT.default('email'.freeze),
+      logout: AT.default('logout'.freeze),
+    ).hash_default
 
-    def initialize dsn, keys: DEFAULT_KEYS, vars: DEFAULT_VARS,
-        path: DEFAULT_PATH, templates: DEFAULT_TEMPLATES, mail: DEFAULT_MAIL,
-        expires: TWO_WEEKS, debug: false
+    Vars = SH.schema(
+      user:     AT.default('FCGI_USER'.freeze),
+      redirect: AT.default('FCGI_REDIRECT'.freeze),
+    ).hash_default
+
+    Expiry = SH.schema(
+      url:    LazyAuth::Types::Duration.default(TEN_MINUTES),
+      cookie: LazyAuth::Types::Duration.default(TWO_WEEKS),
+    ).hash_default
+
+    Mapping = SH.schema({
+      default_401:      'basic-401.xhtml',
+      default_409:      'basic-409.xhtml',
+      default_500:      'basic-500.xhtml',
+      knock_bad:        'basic-409.xhtml',
+      knock_not_found:  'basic-409.xhtml',
+      knock_expired:    'nonce-expired.xhtml',
+      cookie_bad:       'basic-409.xhtml',
+      cookie_not_found: 'basic-409.xhtml',
+      cookie_expired:   'cookie-expired.xhtml',
+      no_user:          'not-on-list.xhtml',
+      email:            'email.xhtml',
+      email_bad:        'email-409.xhtml',
+      email_not_listed: 'not-on-list.xhtml',
+      email_failed:     'basic-500.xhtml',
+      email_sent:       'email-sent.xhtml',
+    }.transform_values { |x| AT.default x.freeze }).hash_default
+
+    # Templates = SH.schema(
+    #   path: LazyAuth::Types::AbsolutePathname.default(DEFAULT_PATH),
+    #   transform?: AT,
+    #   mapping: Mapping,
+    # ).hash_default
+
+    RawTemplates = LazyAuth::Template::Mapper::RawParams.schema(
+      mapping: Mapping
+    ).hash_default
+
+    Templates = LazyAuth::Types.Constructor(LazyAuth::Template::Mapper) do |x|
+      raw  = RawTemplates.(x)
+      path = raw.delete :path
+      LazyAuth::Template::Mapper.new path, **raw
+    end# .default do
+    #   #raw  = RawTemplates.({})
+    #   path = raw.delete :path
+    #   LazyAuth::Template::Mapper.new path, **raw
+    # end
+
+    EMail = SH.schema(
+      from: Dry::Types['string'],
+      method: Dry::Types['symbol'].default(:sendmail),
+      #options?: SH.map(Dry::Types['symbol'], LazyAuth::Types::Atomic)
+    ).hash_default
+
+    Config = SH.schema(
+      state:      LazyAuth::State::Type,
+      keys:       Keys,
+      vars:       Vars,
+      expiry:     Expiry,
+      templates:  Templates,
+      email:      EMail,
+    ).hash_default
+
+    # Config = Dry::Schema.Params do
+    #   optional(:keys).hash do
+    #     optional(:query).filled(LazyAuth::Types::ASCIIToken.default 'knock'.freeze)
+    #     optional(:cookie).filled(LazyAuth::Types::ASCIIToken.default 'lazyauth'.freeze)
+    #     required(:email).filled(LazyAuth::Types::ASCIIToken.default 'email'.freeze)
+    #     required(:logout).filled(LazyAuth::Types::ASCIIToken.default 'logout'.freeze)
+    #   end
+    # end
+
+    DEFAULTS = {
+      keys: DEFAULT_KEYS,
+      vars: DEFAULT_VARS,
+      expiry: DEFAULT_EXP,
+      templates: {
+        path: DEFAULT_PATH,
+        mapping: {
+          default_401:      'basic-401.xhtml',
+          default_409:      'basic-409.xhtml',
+          default_500:      'basic-500.xhtml',
+          knock_bad:        'basic-409.xhtml',
+          knock_not_found:  'basic-409.xhtml',
+          knock_expired:    'nonce-expired.xhtml',
+          cookie_bad:       'basic-409.xhtml',
+          cookie_not_found: 'basic-409.xhtml',
+          cookie_expired:   'cookie-expired.xhtml',
+          no_user:          'not-on-list.xhtml',
+          email:            'email.xhtml',
+          email_bad:        'email-409.xhtml',
+          email_not_listed: 'not-on-list.xhtml',
+          email_failed:     'basic-500.xhtml',
+          email_sent:       'email-sent.xhtml',
+        },
+      },
+      mail: {
+        method: :sendmail,
+      },
+    }
+
+    public
+
+    def initialize state,
+        keys: {}, vars: {}, expiry: {}, templates: {}, email: {}, debug: false
 
       @debug = debug
+
+      # process config
+      config = LazyAuth::Types::AppConfig.({
+        state: state, keys: keys, vars: vars,
+        expiry: expiry, templates: templates, mail: mail })
+      # coerce config input and then deep merge with defaults
+      config = DEFAULTS.deep_merge config
+
+      # then assign members
 
       @keys = keys
       @vars = vars
 
       @templates = templates.is_a?(LazyAuth::Template::Mapper) ? templates :
-        LazyAuth::Template::Mapper.new(path, templates)
+        LazyAuth::Template::Mapper.new(path, templates[:mapping])
       @templates.verify! :email
 
-      @query_key    = query_key
-      @cookie_key   = cookie_key
-      @user_var     = user_var
-      @redirect_var = redirect_var
-
-      @state = State.new dsn, debug: debug
+      @state = State.new state, debug: debug
     end
 
     def call env
@@ -405,7 +549,6 @@ module LazyAuth
         env['HTTPS'] = 'on' if env['REQUEST_SCHEME'].downcase == 'https'
       end
       req  = Rack::Request.new env
-      uri  = URI(req.base_url) + env['REQUEST_URI']
       resp = Rack::Response.new
 
       # keep this around for when we split this into app and middleware
@@ -419,13 +562,15 @@ module LazyAuth
       warn env.inspect if @debug
 
       begin
-        # handle knock
         resp = if knock = req.GET[@keys[:query]]
+                 # check for a knock first; this overrides everything
                  handle_knock req, knock
-               elsif token = req.cookies[@keys[:cookie]]
-                 handle_cookie req, token
                elsif req.post?
+                 # next check for a login/logout attempt
                  handle_post req
+               elsif token = req.cookies[@keys[:cookie]]
+                 # next check for a cookie
+                 handle_cookie req, token
                else
                  default_401 req
                end
@@ -434,91 +579,6 @@ module LazyAuth
       end
 
       return resp.finish
-
-      # handle POSTs (login, logout)
-
-      # otherwise 401
-
-      # obtain the query string
-      if (knock = req.GET[@keys[:query]])
-        # return 409 unless the knock parameter is valid
-        unless token_ok? knock
-          resp.status = 409
-          resp.write 'boo hoo bad knock parameter'
-          return resp.finish
-        end
-
-        # return 403 if the knock parameter doesn't pick a user
-
-        user = @state.user_for knock
-        unless user
-          resp.status = 403
-          resp.write "Could not find a user for token #{knock}."
-          return resp.finish
-        end
-
-        @state.stamp_token knock, req.ip
-
-        # remove existing cookie
-        if (token = req.cookies[cookie_key])
-          @state.token.expire token
-          resp.delete_cookie cookie_key, { value: token }
-        end
-
-        target = uri_minus_query uri, @keys[:query]
-
-        token = @state.new_token user, cookie: true
-
-        # set the user and redirect location as variables
-        resp.set_header "Variable-#{@vars[:user]}", user
-        resp.set_header "Variable-#{@vars[:redirect]}", target.to_s
-        resp.set_cookie @keys[:cookie], {
-          value: token, expires: Time.at(2**31-1),
-          secure: req.ssl?,  httponly: true,
-        }
-
-        # response has to be 200 or the auth handler won't pick it up
-        # (response is already 200 by default)
-
-        # content-length has to be present but empty or it will crap out
-        resp.set_header 'Content-Length', ''
-
-      elsif (token = req.cookies[cookie_key])
-        # return 409 unless the cookie is valid
-        unless token_ok? token
-          resp.status = 409
-          resp.write 'boo hoo bad token'
-          return resp.finish
-        end
-
-        # return 403 if the cookie doesn't pick a user
-        user = @state.user_for token, cookie: true
-        unless user
-          resp.status = 403
-          resp.write "Could not find a user for token #{knock}."
-          return resp.finish
-        end
-
-        # stamp the token
-        @state.stamp_token token, req.ip
-
-        # just set the variable
-        resp.set_header "Variable-#{user_var}", user
-
-        # content-length has to be present but empty or it will crap out
-        resp.set_header 'Content-Length', ''
-      else
-        # return 401
-        resp.status = 401
-        resp.set_header 'Content-Type', 'text/plain'
-        out = (['boo hoo'] * 1025).join(' ')
-        resp.set_header 'Content-Length', out.b.length.to_s
-        resp.write out
-        warn 'doublyou tee eff'
-        return resp.finish
-      end
-
-      resp.finish
     end
   end
 end
