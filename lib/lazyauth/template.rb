@@ -30,7 +30,7 @@ module LazyAuth
       TType = LazyAuth::Types.Instance(LazyAuth::Template)
 
       THash = LazyAuth::Types::Hash.map(LazyAuth::Types::NormSym,
-        LazyAuth::Types::String).default { {} }
+        LazyAuth::Types::String).default({}.freeze)
 
       RawParams = LazyAuth::Types::SymbolHash.schema(
         path:       LazyAuth::Types::AbsolutePathname.default(DEFAULT_PATH),
@@ -52,9 +52,9 @@ module LazyAuth
 
       def initialize path = DEFAULT_PATH, base: nil,
           transform: nil, mapping: {}
-        @path      = Pathname(path).expand_path
-        @base      = base
-        @templates = templates.map do |k, v|
+        @path    = Pathname(path).expand_path
+        @base    = base
+        @mapping = mapping.map do |k, v|
           name = normalize k
           template = v.is_a?(LazyAuth::Template) ? v :
             LazyAuth::Template.new(self, k, @path + v)
@@ -63,17 +63,17 @@ module LazyAuth
       end
 
       def [] key
-        @templates[normalize key]
+        @mapping[normalize key]
       end
 
       def []= key, path
         name = normalize key
-        @templates[name] = path.is_a?(LazyAuth::Template) ? path :
+        @mapping[name] = path.is_a?(LazyAuth::Template) ? path :
           LazyAuth::Template.new(self, key, @path + path)
       end
 
       def manifest
-        @templates.keys
+        @mapping.keys
       end
 
       # Ensure that the mapper contains templates with the given names.

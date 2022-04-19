@@ -1,4 +1,3 @@
-require 'lazyauth/state'
 require 'commander'
 require 'yaml'
 require 'pathname'
@@ -7,7 +6,7 @@ require 'uri'
 require 'dry-schema'
 require 'deep_merge'
 
-require 'lazyauth/types'
+require 'lazyauth'
 
 module LazyAuth
 
@@ -30,11 +29,27 @@ module LazyAuth
       port:   10101,
     }.freeze
 
-    Config = Dry::Schema.Params do
-      optional(:host).value LazyAuth::Types::Hostname.default('localhost')
-      optional(:port).value Dry::Types::Integer.default(10101)
-      optional(:pid).value LazyAuth::Types::AbsolutePathname
-    end & LazyAuth::App::Config
+    # Listener = Dry::Schema.Params do
+    #   config.validate_keys = false
+    #   required(:host).value LazyAuth::Types::Hostname.default('localhost'.freeze)
+    #   required(:port).value Dry::Types['integer'].default(10101)
+    #   optional(:pid).value LazyAuth::Types::AbsolutePathname
+    #   # OH so you have to add all the shit jesus
+    #   optional(:state)
+    #   optional(:keys)
+    #   optional(:vars)
+    #   optional(:targets)
+    #   optional(:templates)
+    #   optional(:email)
+    #   # i am so mad about this
+    # end
+
+    # Config = Listener & LazyAuth::App::Config
+
+    Config = LazyAuth::App::Config.schema(
+      host: LazyAuth::Types::Hostname.default('localhost'.freeze),
+      port: Dry::Types['integer'].default(10101),
+      pid?: LazyAuth::Types::AbsolutePathname).hash_default
 
     def normalize_hash h, strings: false, flatten: false, dup: false,
         freeze: false
@@ -100,7 +115,7 @@ module LazyAuth
       listen:     :host,
     }.freeze
 
-    def cmdline_config options
+    def cmdline_config options, mapping = {}
       h = options.__hash__.dup
 
       # do the easy ones first
@@ -369,7 +384,7 @@ not meant to be authoritative storage for user profiles.
               raise Commander::Runner::CommandError.new e
             end
           else
-            url = @config[:base]? @config[:base].dup : nil
+            url = @config[:base] ? @config[:base].dup : nil
           end
 
           # handle implications of expire/oneoff options

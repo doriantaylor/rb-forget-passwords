@@ -49,6 +49,8 @@ module LazyAuth
       out
     end
 
+    RelativePathname = Types.Constructor(::Pathname) { |x| Pathname(x) }
+
     # should be WritablePathname but whatever
     AbsolutePathname = Types.Constructor(::Pathname) do |x|
       out = Pathname(x)
@@ -95,6 +97,7 @@ module Dry::Types::Builder
       # similarly, we only set a default if all the required keys have them.
       return default(reqd.map { |k| [k.name, k.value] }.to_h.freeze) if
         reqd.all?(&:default?)
+      # XXX THIS WILL FAIL IF THE DEFAULT IS A PROC; THE FAIL IS IN DRY-RB
     end
 
     # otherwise just return self

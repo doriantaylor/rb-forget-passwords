@@ -60,4 +60,5 @@ certain contexts, namely the ones the author of this gem is interested in.
 
   # stuff i wrote
   spec.add_runtime_dependency 'uuid-ncname', '>= 0.2'
+  spec.add_runtime_dependency 'xml-mixup',   '>= 0.1.13'
 end
