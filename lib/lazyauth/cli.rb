@@ -20,31 +20,10 @@ module LazyAuth
     CFG_FILE = Pathname('lazyauth.yml').freeze
 
     DEFAULTS = {
-      dsn:    'sqlite://lazyauth.sqlite',
-      query:  'knock',
-      cookie: 'lazyauth',
-      expiry: { url: ONE_YEAR, cookie: ONE_YEAR }.freeze,
-      vars:   { user: 'FCGI_USER', redirect: 'FCGI_REDIRECT' }.freeze,
       host:   'localhost',
       port:   10101,
+      state:  { dsn: 'sqlite://lazyauth.sqlite' },
     }.freeze
-
-    # Listener = Dry::Schema.Params do
-    #   config.validate_keys = false
-    #   required(:host).value LazyAuth::Types::Hostname.default('localhost'.freeze)
-    #   required(:port).value Dry::Types['integer'].default(10101)
-    #   optional(:pid).value LazyAuth::Types::AbsolutePathname
-    #   # OH so you have to add all the shit jesus
-    #   optional(:state)
-    #   optional(:keys)
-    #   optional(:vars)
-    #   optional(:targets)
-    #   optional(:templates)
-    #   optional(:email)
-    #   # i am so mad about this
-    # end
-
-    # Config = Listener & LazyAuth::App::Config
 
     Config = LazyAuth::App::Config.schema(
       host: LazyAuth::Types::Hostname.default('localhost'.freeze),
@@ -91,19 +70,14 @@ module LazyAuth
         end
       end
 
-      if clean
-        cfg  = normalize_hash cfg
-        test = validate_config cfg
-        raise RuntimeError.new(test.errors.messages) unless test.success?
-        cfg = test.to_h
-      end
+      cfg = normalize_hash cfg if clean
 
       merge_config @config, cfg, commit: true if commit
 
       cfg
     end
 
-    def validate_config cfg
+    def validate_config cfg = @config
       Config.call cfg
     end
 
@@ -116,32 +90,31 @@ module LazyAuth
     }.freeze
 
     def cmdline_config options, mapping = {}
-      h = options.__hash__.dup
-
-      # do the easy ones first
-      h.transform_keys! { |k| OPTION_MAP.fetch k, k }
-
-      # prepare hashes
-      exp = h.delete :expiry if h.include?(:expiry) and !h[:expiry].is_a?(Hash)
-      [:vars, :expiry].each do |k|
-        raise "key #{k} should be a hash" if h.include? k and !k.is_a?(Hash)
-        h[k] ||= {}
+      options ||= {}
+      # Commander::Command::Options is weird
+      begin
+        h = options.__hash__.dup
+      rescue NoMethodError
+        h = options
       end
 
-      # do expiry durations
-      h[:expiry][:url] = h[:expiry][:cookie] = exp if exp
-      [:url, :cookie].each do |which|
-        hs = (which.to_s + '_expiry').to_sym
-        h[:expiry][which] = h.delete hs if h.include? hs
+      out = {}
+
+      h.keys.each do |k|
+        next unless v = mapping[k]
+        v = [v] unless v.is_a? Array
+        x = out
+        v.each_index do |i|
+          vi = v[i]
+          if i + 1 == v.length
+            x[vi] = h[k] # assign the value to the hash member
+          else
+            x = x[vi] ||= {} # append another hash
+          end
+        end
       end
 
-      # do fastcgi header variables
-      [:user, :redirect].each do |which|
-        vs = (which.to_s + '_var').to_sym
-        h[:vars][which] = h.delete vs if h.include? vs
-      end
-
-      h
+      out
     end
 
     def merge_config *cfg, commit: false, validate: false
@@ -200,7 +173,7 @@ module LazyAuth
 
       global_option '-d', '--dsn STRING',
         'Specify a data source name, overriding configuration' do |o|
-        @config[:dsn] = o
+        @config[:state][:dsn] = o
       end
 
       global_option '-D', '--debug-sql',
@@ -283,7 +256,7 @@ command.
           # wrap these calls
           begin
             cfg = cmdline_config opts
-            merge_config @config, cfg, commit: true, validate: true
+            merge_config @config, cfg, commit: true
             write_config
           rescue SystemCallError => e
             rel = @cfgfile.relative_path_from Pathname.pwd
@@ -356,7 +329,7 @@ not meant to be authoritative storage for user profiles.
         c.action do |args, opts|
           read_config
           merge_config @config, cmdline_config(opts),
-            commit: true, validate: true
+            commit: true
 
           user, url = *(args.map(&:strip))
 
@@ -470,14 +443,20 @@ something like `mod_authnz_fcgi`.
           require 'lazyauth/fastcgi'
 
           read_config
-          merge_config @config, cmdline_config(opts),
-            commit: true, validate: true
+          merge_config @config,
+            cmdline_config(opts, { listen: :host, port: :port }), commit: true
+          @config = Config.(@config)
+
+          appcfg = @config.slice(
+            :keys, :vars, :targets, :templates, :email
+          ).merge({ debug: @log_sql })
 
           say 'Running authenticator daemon on ' +
             "fcgi://#{@config[:host]}:#{@config[:port]}/"
 
           Rack::Server.start({
-            app: LazyAuth::App.new(@config[:dsn], debug: @log_sql),
+            # app: LazyAuth::App.new(@config[:dsn], debug: @log_sql),
+            app: LazyAuth::App.new(@config[:state], **appcfg),
             server: 'hacked-fcgi',
             environment: 'none',
             daemonize: opts.detach,

@@ -24,9 +24,14 @@ module LazyAuth
       expiry:    Expiry).hash_default
 
     Type = LazyAuth::Types.Constructor(self) do |x|
-      raw = RawParams.(x)
-      dsn = raw.delete :dsn
-      self.new dsn, **raw
+      # this will w
+      if x.is_a? self
+        x
+      else
+        raw = RawParams.(x)
+        dsn = raw.delete :dsn
+        self.new dsn, **raw
+      end
     end
 
     private

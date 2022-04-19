@@ -52,13 +52,15 @@ certain contexts, namely the ones the author of this gem is interested in.
   spec.add_runtime_dependency 'commander',  '>= 4.4'
   spec.add_runtime_dependency 'deep_merge', '>= 1.2'
   spec.add_runtime_dependency 'dry-schema', '>= 1.0'
-  spec.add_runtime_dependency 'fcgi',       '>= 0.9'
+  spec.add_runtime_dependency 'fcgi',       '>= 0.9.2.1'
   spec.add_runtime_dependency 'iso8601',    '>= 0.12'
+  spec.add_runtime_dependency 'mail',       '>= 2.7.1'
   spec.add_runtime_dependency 'rack',       '>= 2.0'
   spec.add_runtime_dependency 'sequel',     '>= 5.20'
   spec.add_runtime_dependency 'uuidtools',  '>= 2.1'
 
   # stuff i wrote
-  spec.add_runtime_dependency 'uuid-ncname', '>= 0.2'
-  spec.add_runtime_dependency 'xml-mixup',   '>= 0.1.13'
+  spec.add_runtime_dependency 'http-negotiate', '>= 0.1.3'
+  spec.add_runtime_dependency 'uuid-ncname',    '>= 0.2'
+  spec.add_runtime_dependency 'xml-mixup',      '>= 0.1.13'
 end

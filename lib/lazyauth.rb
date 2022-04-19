@@ -111,25 +111,24 @@ module LazyAuth
     ST = LazyAuth::Types::String
     AT = LazyAuth::Types::ASCIIToken
 
-    Keys = SH.schema(
-      query:  AT.default('knock'.freeze),
-      cookie: AT.default('lazyauth'.freeze),
-      email:  AT.default('email'.freeze),
-      logout: AT.default('logout'.freeze),
-    ).hash_default
+    Keys = SH.schema({
+      query:  'knock',
+      cookie: 'lazyauth',
+      email:  'email',
+      logout: 'logout',
+    }.transform_values { |x| AT.default x.freeze }).hash_default
 
-    Vars = SH.schema(
-      user:     AT.default('FCGI_USER'.freeze),
-      redirect: AT.default('FCGI_REDIRECT'.freeze),
-    ).hash_default
+    Vars = SH.schema({
+      user:     'FCGI_USER',
+      redirect: 'FCGI_REDIRECT',
+    }.transform_values { |x| AT.default x.freeze }).hash_default
 
     Targets = SH.schema({
       logout_one: '/logged-out',
       logout_all: '/logged-out-all',
-    }.transform_values do |x|
-                          LazyAuth::Types::URI.default x.freeze
-                        end).hash_default
+    }.transform_values { |x| ST.default x.freeze }).hash_default
 
+    # mapping override with specific values
     Mapping = SH.schema({
       default_401:      'basic-401.xhtml',
       default_409:      'basic-409.xhtml',
@@ -148,12 +147,6 @@ module LazyAuth
       email_sent:       'email-sent.xhtml',
     }.transform_values { |x| ST.default x.freeze }).hash_default
 
-    # Templates = SH.schema(
-    #   path: LazyAuth::Types::AbsolutePathname.default(DEFAULT_PATH),
-    #   transform?: AT,
-    #   mapping: Mapping,
-    # ).hash_default
-
     # this is the closest thing to "inheritance"
     RawTemplates = LazyAuth::Template::Mapper::RawParams.schema(
       mapping: Mapping
@@ -161,9 +154,13 @@ module LazyAuth
 
     # which means we have to duplicate the constructor and its default
     Templates = LazyAuth::Types.Constructor(LazyAuth::Template::Mapper) do |x|
-      raw  = RawTemplates.(x)
-      path = raw.delete :path
-      LazyAuth::Template::Mapper.new path, **raw
+      if x.is_a? LazyAuth::Template::Mapper
+        x
+      else
+        raw  = RawTemplates.(x)
+        path = raw.delete :path
+        LazyAuth::Template::Mapper.new path, **raw
+      end
     end.default do
       raw  = RawTemplates.({})
       path = raw.delete :path
@@ -171,11 +168,12 @@ module LazyAuth
     end
 
     EMail = SH.schema(
-      from: Dry::Types['string'],
-      method: Dry::Types['symbol'].default(:sendmail),
+      from:   Dry::Types['string'],
+      method: LazyAuth::Types::Coercible::Symbol.default(:sendmail),
       #options?: SH.map(Dry::Types['symbol'], LazyAuth::Types::Atomic)
     ).hash_default
 
+    # the composed configuration hash
     Config = SH.schema(
       state:      LazyAuth::State::Type,
       keys:       Keys,
@@ -185,61 +183,13 @@ module LazyAuth
       email:      EMail,
     ).hash_default
 
-    # Config = Dry::Schema.Params do
-    #   required(:state).value     LazyAuth::State::Type
-    #   required(:keys).value      Keys
-    #   required(:vars).value      Vars
-    #   required(:targets).value   Targets
-    #   required(:templates).value Templates
-    #   required(:email).value     EMail
-    # end
-
-    # Config = Dry::Schema.Params do
-    #   optional(:keys).hash do
-    #     optional(:query).filled(LazyAuth::Types::ASCIIToken.default 'knock'.freeze)
-    #     optional(:cookie).filled(LazyAuth::Types::ASCIIToken.default 'lazyauth'.freeze)
-    #     required(:email).filled(LazyAuth::Types::ASCIIToken.default 'email'.freeze)
-    #     required(:logout).filled(LazyAuth::Types::ASCIIToken.default 'logout'.freeze)
-    #   end
-    # end
-
-    # DEFAULTS = {
-    #   keys: DEFAULT_KEYS,
-    #   vars: DEFAULT_VARS,
-    #   expiry: DEFAULT_EXP,
-    #   templates: {
-    #     path: DEFAULT_PATH,
-    #     mapping: {
-    #       default_401:      'basic-401.xhtml',
-    #       default_409:      'basic-409.xhtml',
-    #       default_500:      'basic-500.xhtml',
-    #       knock_bad:        'basic-409.xhtml',
-    #       knock_not_found:  'basic-409.xhtml',
-    #       knock_expired:    'nonce-expired.xhtml',
-    #       cookie_bad:       'basic-409.xhtml',
-    #       cookie_not_found: 'basic-409.xhtml',
-    #       cookie_expired:   'cookie-expired.xhtml',
-    #       no_user:          'not-on-list.xhtml',
-    #       email:            'email.xhtml',
-    #       email_bad:        'email-409.xhtml',
-    #       email_not_listed: 'not-on-list.xhtml',
-    #       email_failed:     'basic-500.xhtml',
-    #       email_sent:       'email-sent.xhtml',
-    #     },
-    #   },
-    #   mail: {
-    #     method: :sendmail,
-    #   },
-    # }
-
-
     # Return a token suitable for being either a nonce or a cookie.
     # Returns a compact UUID.
     #
     # @return [String] a compact UUID.
     #
     def make_token
-      UUID::NCName.to_ncname UUIDTools::UUID.random_create, version: 1
+      UUID::NCName.to_ncname UUIDTools::UUID.random_create
     end
 
     # Return a copy of the given URI with the nonce token in the
@@ -510,6 +460,7 @@ module LazyAuth
 
       # we do when we actually process the token in the query string
       resp.status   = 303
+      resp.write 'Redirecting...'
       resp.location = (req_uri(req) +
         @targets[all ? :logout_one : :logout_all]).to_s
 
@@ -517,6 +468,8 @@ module LazyAuth
     end
 
     def handle_post req
+      return Rack::Response[403, { 'Content-Type' => 'text/plain' }, 'wat lol']
+
       if logout = req.POST[@keys[:logout]]
         handle_logout req, logout
       elsif email = req.POST[@keys[:email]]
@@ -527,6 +480,12 @@ module LazyAuth
       else
         default_401 req
       end
+    end
+
+    def default_401 req
+      resp = Rack::Response.new
+      resp.status = 401
+      @templates[:default_401].populate resp, req
     end
 
     # @!endgroup

@@ -1,4 +1,5 @@
 require 'nokogiri'
+require 'stringio'
 require 'xml-mixup'
 require 'http-negotiate'
 require 'lazyauth/types'
@@ -238,9 +239,10 @@ module LazyAuth
     # @return [Rack::Response] the response object, updated in place
     #
     def populate resp, headers = {}, vars = {}
-      if (resp.body, type = serialize(process(vars), headers, full: true))
+      if (body, type = serialize(process(vars), headers, full: true))
+        #resp.length = body.bytesize # not sure if necessary
+        resp.write body
         resp.content_type = type
-        resp.length = resp.body.bytesize # not sure if necessary
       else
         # otherwise 406 lol, the client didn't like any of our responses
         resp.status = 406
