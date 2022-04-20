@@ -188,7 +188,7 @@ module LazyAuth
         if t = doc.at_xpath("/processing-instruction('xml-stylesheet')[1]")
           t = markup spec: pi, replace: t
         else
-          t = markup spec: pi, before: d.children.first
+          t = markup spec: pi, before: doc.children.first
         end
       end
 

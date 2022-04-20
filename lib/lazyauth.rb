@@ -386,7 +386,9 @@ module LazyAuth
       resp
     end
 
-    def handle_cookie req, token
+    def handle_cookie req, token = nil
+      token ||= req.cookies[@keys[:cookie]]
+
       resp = Rack::Response.new
 
       raise_error(409, :cookie_bad, req) unless token_ok? token
@@ -530,7 +532,6 @@ module LazyAuth
 
     DISPATCH = {
       login: -> req {
-        warn self
         raise_error(405, :post_only, req) unless req.post?
 
         handle_login req
@@ -556,7 +557,7 @@ module LazyAuth
       # then assign members
       config.each { |key, value| instance_variable_set "@#{key.to_s}", value }
 
-      warn @email.inspect
+      # warn @email.inspect
 
       # create a dispatch table for content requests
       # XXX this will have to be expanded for multiple hosts
