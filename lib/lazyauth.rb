@@ -352,11 +352,14 @@ module LazyAuth
     end
 
     def handle_knock req, token
-      resp = Rack::Response.new
+      uri    = req_uri req
+      target = uri_minus_query uri, @keys[:query]
+      resp   = Rack::Response.new
 
       raise_error(409, :knock_bad, req) unless token_ok? token
 
-      raise_error(401, :knock_expired, req) unless
+      raise_error(401, :knock_expired, req,
+        vars: { LOGIN: @targets[:login], FORWARD: target.to_s }) unless
         @state.token.valid? token
 
       raise_error(403, :knock_not_found, req) unless
@@ -370,9 +373,6 @@ module LazyAuth
         @state.token.expire token
         resp.delete_cookie @keys[:cookie], { value: token }
       end
-
-      uri    = req_uri req
-      target = uri_minus_query uri, @keys[:query]
 
       # we never use the knock token again so we can overwrite it with
       # a new cookie
@@ -404,7 +404,8 @@ module LazyAuth
       raise_error(409, :cookie_bad, req) unless token_ok? token
 
       # check if the cookie is still valid
-      raise_error(409, :cookie_expired, req) unless
+      raise_error(401, :cookie_expired, req,
+        vars: { LOGIN: @targets[:login], FORWARD: req_uri(req).to_s }) unless
         @state.token.valid? token, cookie: true
 
       # check if there is an actual user associated with the cookie

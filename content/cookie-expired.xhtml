@@ -6,7 +6,8 @@
   <body>
     <h1>Your Session Has Run Out</h1>
     <p>The token associated with the link that logged you in has either expired or otherwise been invalidated (e.g. by logging out). To log back in, we can e-mail you another link.</p>
-    <form method="post" action="" accept-charset="utf-8">
+    <form method="post" action="$LOGIN" accept-charset="utf-8">
+      <input type="hidden" name="forward" value="$FORWARD"/>
       <input type="email" name="email" placeholder="e.g. you@yourcompany.biz"/>
       <input type="submit" value="Send Link"/>
     </form>
