@@ -506,9 +506,9 @@ module LazyAuth
       uuid  = UUID::NCName::from_ncname token, version: 1
       raise "Could not get UUID from token #{token}" unless uuid
       @db.transaction do
-        warn @usage.where(token: uuid, ip: ip).inspect
+        # warn @usage.where(token: uuid, ip: ip).inspect
         rec = @usage.where(token: uuid, ip: ip).first
-        warn "#{uuid} #{ip}"
+        # warn "#{uuid} #{ip}"
         if rec
           rec.update(seen: seen)
           rec # yo does update return the record? or

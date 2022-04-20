@@ -383,7 +383,7 @@ module LazyAuth
       resp.set_header "Variable-#{@vars[:redirect]}", target.to_s
       resp.set_cookie @keys[:cookie], {
         value: token, secure: req.ssl?, httponly: true,
-        expires: time_delta(@state.expiry[:cookie])
+        expires: time_delta(@state.expiry[:cookie]),
       }
 
       # response has to be 200 or the auth handler won't pick it up
