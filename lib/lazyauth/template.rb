@@ -50,13 +50,14 @@ module LazyAuth
         self.new(path, **input)
       end
 
-      attr_reader :path, :base
+      attr_reader :path, :base, :transform
 
       def initialize path = DEFAULT_PATH, base: nil,
           transform: nil, mapping: {}
-        @path    = Pathname(path).expand_path
-        @base    = base
-        @mapping = mapping.map do |k, v|
+        @path      = Pathname(path).expand_path
+        @base      = base
+        @transform = transform
+        @mapping   = mapping.map do |k, v|
           name = normalize k
           template = v.is_a?(LazyAuth::Template) ? v :
             LazyAuth::Template.new(self, k, @path + v)
@@ -159,7 +160,7 @@ module LazyAuth
     #
     # @return [Nokogiri::XML::Document] the altered document
     #
-    def process vars: {}, base: nil
+    def process vars: {}, base: nil, transform: nil
       # sub all the placeholders for variables
       doc = @doc.dup
 
@@ -177,6 +178,17 @@ module LazyAuth
         elsif h = doc.at_xpath('/html:html/html:head[1]', XPATHNS)
           # otherwise check for <head>, to which we will prepend
           markup spec: { nil => :base, href: base.to_s }, parent: h
+        end
+      end
+
+      # add xsl transform if present
+      if transform ||= mapper.transform
+        pi = { '#pi' => 'xml-stylesheet',
+            type: 'text/xsl', href: transform.to_s }
+        if t = doc.at_xpath("/processing-instruction('xml-stylesheet')[1]")
+          t = markup spec: pi, replace: t
+        else
+          t = markup spec: pi, before: d.children.first
         end
       end
 

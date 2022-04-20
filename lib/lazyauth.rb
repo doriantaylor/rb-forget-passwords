@@ -309,7 +309,7 @@ module LazyAuth
       doc = template.process vars: vars
       sub = doc.xpath('normalize-space((//title|//html:title)[1])', XPATHNS)
 
-      html = template.serialize doc, { 'Accept' => 'text/html' }
+      html = template.serialize doc, { 'Accept' => 'text/html'  }
       text = template.serialize doc, { 'Accept' => 'text/plain' }
 
       # fuuuuuu the block operates as instance_exec
