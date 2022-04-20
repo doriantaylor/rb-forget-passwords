@@ -29,8 +29,7 @@ module LazyAuth
         x
       else
         raw = RawParams.(x)
-        dsn = raw.delete :dsn
-        self.new dsn, **raw
+        self.new raw[:dsn], **raw.slice(:user, :password)
       end
     end
 
@@ -76,6 +75,12 @@ module LazyAuth
             where { expires < date }
           end
 
+          def m.valid? token, cookie: false, oneoff: nil
+            uuid = UUID::NCName.valid?(token) ?
+              UUID::NCName.from_ncname(token) : token
+            !!where(token: uuid).fresh(cookie: cookie, oneoff: oneoff).first
+          end
+
           m.dataset_module do
             where(:expired) { expires < S::CURRENT_TIMESTAMP }
             order :by_date, :added, :expires, :user
@@ -92,10 +97,10 @@ module LazyAuth
               rec.user if rec
             end
 
-            def fresh cookie: false, oneoff: false
-              base = where(slug: !cookie, oneoff: oneoff) {
-                expires >= S::CURRENT_TIMESTAMP
-              }
+            def fresh cookie: false, oneoff: nil
+              w = { slug: !cookie }
+              w[:oneoff] = !!oneoff unless oneoff.nil?
+              base = where(**w) { expires > S::CURRENT_TIMESTAMP }
 
               base = base.left_join(Usage.latest, [:token]).where(seen: nil) if
                 !cookie && oneoff
@@ -104,7 +109,9 @@ module LazyAuth
             end
 
             def expire token
-              uuid = UUID::NCName::from_ncname token, version: 1
+              uuid = UUID::NCName.valid?(token) ?
+                UUID::NCName.from_ncname(token) : token
+
               where(token: uuid).update(expires: S::CURRENT_TIMESTAMP)
             end
 
@@ -149,9 +156,10 @@ module LazyAuth
 
         },
         create: -> {
-          String   :token, null: false, fixed: true, size: 36
-          String   :ip,    null: false, size: 40
-          DateTime :seen,  null: false, default: S::CURRENT_TIMESTAMP
+          String   :token,   null: false, fixed: true, size: 36
+          String   :ip,      null: false, size: 40
+          DateTime :created, null: false, default: S::CURRENT_TIMESTAMP
+          DateTime :seen,    null: false, default: S::CURRENT_TIMESTAMP
           primary_key [:token, :ip], name: :pk_usage
           foreign_key [:token], :token, name: :fk_usage_token
         },
@@ -174,7 +182,7 @@ module LazyAuth
             dparts = domain.split ?.
             (0..dparts.length).each do |i|
               d = dparts[i..dparts.length].join ?.
-              warn "trying #{email} on #{d}"
+              # warn "trying #{email} on #{d}"
 
               # then we try to get an exact match on the address
               if x = where(domain: d, address: email).first
@@ -184,7 +192,7 @@ module LazyAuth
                 # (note we leave one segment)
                 (0..mparts.length-1).each do |j|
                   md = mparts[j..mparts.length].join ?.
-                  warn "trying #{md} on #{d}"
+                  # warn "trying #{md} on #{d}"
                   if y = where(domain: d, address: md).first
                     return y.ok
                   end
@@ -201,9 +209,9 @@ module LazyAuth
               domain.respond_to?(:host) ? domain.host : domain
             ).to_s.strip.downcase
             email = email.to_s.strip.downcase
-            warn "domain: #{domain}, email: #{email}"
+            # warn "domain: #{domain}, email: #{email}"
             rows = where(domain: domain, address: email).update ok: true
-            warn rows.inspect
+            # warn rows.inspect
             return true if rows > 0
             insert domain: domain, address: email
             true
@@ -264,7 +272,7 @@ module LazyAuth
           cascade && db.table_exists?(table)
         # m = db.method method
         # m.call table, &proc
-        warn table
+        # warn table
         db.send method, table, &proc
       end
     end
@@ -301,14 +309,14 @@ module LazyAuth
 
     public
 
-    attr_reader :db, :user, :token, :usage, :acl
+    attr_reader :db, :expiry, :user, :token, :usage, :acl
 
     def initialize dsn, create: true, user: nil, password: nil,
         expiry: { query: TEN_MINUTES, cookie: TWO_WEEKS }, debug: false
       @db = Sequel.connect dsn
 
-      @expiry = expiry
-      warn expiry.inspect
+      @expiry = Expiry.(expiry)
+      # warn expiry.inspect
 
       if debug
         require 'logger'
@@ -432,6 +440,8 @@ module LazyAuth
       return UUID::NCName::to_ncname row.token, version: 1 if row
     end
 
+
+
     # Expire all cookies associated with a principal.
     #
     # @param
@@ -453,12 +463,34 @@ module LazyAuth
     #
     # @return [String, nil] the user principal identifier or nil
     #
-    def user_for token, id: false, cookie: false
+    def user_for token, record: false, id: false, cookie: false
       uuid = UUID::NCName::from_ncname token, version: 1
-      out  = @user.join(:token, user: :id).select(
-        :principal, :expires).where(token: uuid, slug: !cookie).first
+      out  = @user.where(disabled: nil).join(:token, user: :id).select(
+        :id, :principal, :email, :expires
+      ).where(token: uuid, slug: !cookie).first
 
-      id ? out.id : out.principal if out
+      # return the whole record if asked for it otherwise the id or principal
+      record ? out : id ? out.id : out.principal if out
+    end
+
+    # Freshen the expiry date of the token.
+    #
+    # @param token [String] the token
+    # @param from [Time, DateTime] the reference time
+    # @param cookie [true,false] whether the token is a cookie
+    #
+    # @return [true, false] whether any tokens were affected.
+    #
+    def freshen_token token, from: Time.now, cookie: true
+      uuid = UUID::NCName.valid?(token) ?
+        UUID::NCName.from_ncname(token) : token
+      exp = @expiry[cookie ? :cookie : :query]
+      # this is dumb that this is how you have to do this
+      delta = from.to_time + exp.to_seconds(ISO8601::DateTime.new from.iso8601)
+      # aaanyway...
+      rows = @token.where(
+        token: uuid).fresh(cookie: cookie).update(expires: delta)
+      rows > 0
     end
 
     # Add a token to the usage log and associate it with an
@@ -466,7 +498,7 @@ module LazyAuth
     #
     # @param token [String] the token
     # @param ip [String] the IP address that used
-    # @param seen [DateTime] The timestamp (defaults to now).
+    # @param seen [Time,DateTime] The timestamp (defaults to now).
     #
     # @return [LazyAuth::State::Usage] the token's usage record
     #
@@ -474,8 +506,15 @@ module LazyAuth
       uuid  = UUID::NCName::from_ncname token, version: 1
       raise "Could not get UUID from token #{token}" unless uuid
       @db.transaction do
-        @usage.where(token: uuid, ip: ip).first ||
+        warn @usage.where(token: uuid, ip: ip).inspect
+        rec = @usage.where(token: uuid, ip: ip).first
+        warn "#{uuid} #{ip}"
+        if rec
+          rec.update(seen: seen)
+          rec # yo does update return the record? or
+        else
           @usage.insert(token: uuid, ip: ip, seen: seen)
+        end
       end
     end
   end

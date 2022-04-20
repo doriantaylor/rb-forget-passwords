@@ -82,11 +82,6 @@ module LazyAuth
     end
   end
 
-  class Middleware
-    # lol jk it's not a middleware yet. let's get the app running
-    # first and then we can break it in two.
-  end
-
   class App
     require 'time'
     require 'uri'
@@ -262,6 +257,17 @@ module LazyAuth
       !!UUID::NCName.valid?(token)
     end
 
+    # Return a Time object correctly delta'd by an {ISO8601::Duration}.
+    #
+    # @param duration [ISO8601::Duration] the duration
+    # @param from [nil, Time] anchor time, if other than `Time.now`
+    #
+    # @return [Time] the new time
+    #
+    def time_delta duration, from = Time.now
+      from + duration.to_seconds(ISO8601::DateTime.new from.iso8601)
+    end
+
     # Expire a token.
     #
     def expire token
@@ -350,6 +356,9 @@ module LazyAuth
 
       raise_error(409, :knock_bad, req) unless token_ok? token
 
+      raise_error(401, :knock_expired, req) unless
+        @state.token.valid? token
+
       raise_error(403, :knock_not_found, req) unless
         user = @state.user_for(token)
 
@@ -373,8 +382,8 @@ module LazyAuth
       resp.set_header "Variable-#{@vars[:user]}", user.to_s
       resp.set_header "Variable-#{@vars[:redirect]}", target.to_s
       resp.set_cookie @keys[:cookie], {
-        value: token, expires: Time.at(2**31-1),
-        secure: req.ssl?,  httponly: true,
+        value: token, secure: req.ssl?, httponly: true,
+        expires: time_delta(@state.expiry[:cookie])
       }
 
       # response has to be 200 or the auth handler won't pick it up
@@ -391,16 +400,34 @@ module LazyAuth
 
       resp = Rack::Response.new
 
+      # check if token is well-formed
       raise_error(409, :cookie_bad, req) unless token_ok? token
 
-      reaise_error(403, :no_user, req) unless
-        user = @state.user_for(token, cookie: true)
+      # check if the cookie is still valid
+      raise_error(409, :cookie_expired, req) unless
+        @state.token.valid? token, cookie: true
+
+      # check if there is an actual user associated with the cookie
+      raise_error(403, :no_user, req) unless
+        user = @state.user_for(token, record: true, cookie: true)
+
+      raise_error(403, :email_not_listed, req) unless
+        @state.acl.listed? req_uri(req), user.email
+
+      now = Time.now
+      @state.freshen_token token, from: now
 
       # stamp the token
-      @state.stamp_token token, req.ip
+      @state.stamp_token token, req.ip, seen: now
+
+      # update the cookie expiration
+      resp.set_cookie @keys[:cookie], {
+        value: token, secure: req.ssl?, httponly: true,
+        expires: time_delta(@state.expiry[:cookie], now),
+      }
 
       # just set the variable
-      resp.set_header "Variable-#{@vars[:user]}", user.to_s
+      resp.set_header "Variable-#{@vars[:user]}", user.principal.to_s
 
       # content-length has to be present but empty or it will crap out
       resp.set_header 'Content-Length', ''
@@ -420,8 +447,7 @@ module LazyAuth
 
       # obtain the email address from the form
       raise_error(409, :email_bad, req, {
-        EMAIL: address.to_s, LOGIN: @targets[:login].to_s,
-        FORWARD: forward.to_s }) unless
+        LOGIN: @targets[:login].to_s, FORWARD: forward.to_s }) unless
         address = email_in(req.POST[@keys[:email]])
 
       # XXX TODO wrap this business in a transaction like an adult?
