@@ -15,6 +15,7 @@
 .rspec_status
 
 # state files
+lazyauth-private.yml
 lazyauth.yml
 lazyauth.db
 lazyauth.sqlite

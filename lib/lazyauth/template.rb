@@ -3,6 +3,7 @@ require 'stringio'
 require 'xml-mixup'
 require 'http-negotiate'
 require 'lazyauth/types'
+require 'uri'
 
 module LazyAuth
 
@@ -116,7 +117,8 @@ module LazyAuth
     }
 
     ATTRS = %w[
-      about typeof rel rev property resource href src action data id class
+      about typeof rel rev property resource href src
+      action data id class name value
     ].freeze
 
     ATTRS_XPATH = ('//*[%s]/@*' % ATTRS.map { |a| "@#{a}" }.join(?|)).freeze
@@ -157,7 +159,7 @@ module LazyAuth
     #
     # @return [Nokogiri::XML::Document] the altered document
     #
-    def process vars = {}, base: nil
+    def process vars: {}, base: nil
       # sub all the placeholders for variables
       doc = @doc.dup
 
@@ -222,7 +224,7 @@ module LazyAuth
       # no type selected
       return unless method
 
-      warn method.inspect
+      # warn method.inspect
 
       out = [doc.instance_exec(&method), type]
 
@@ -238,8 +240,9 @@ module LazyAuth
     #
     # @return [Rack::Response] the response object, updated in place
     #
-    def populate resp, headers = {}, vars = {}
-      if (body, type = serialize(process(vars), headers, full: true))
+    def populate resp, headers = {}, vars = {}, base: nil
+      if (body, type = serialize(
+        process(vars: vars, base: base), headers, full: true))
         #resp.length = body.bytesize # not sure if necessary
         resp.write body
         resp.content_type = type

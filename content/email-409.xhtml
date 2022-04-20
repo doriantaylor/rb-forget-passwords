@@ -6,7 +6,8 @@
   <body>
     <h1>We Had A Problem With Your E-Mail Address</h1>
     <p>We weren't able to use <strong><?var $EMAIL?></strong> as an e-mail address. Please try another.</p>
-    <form method="post" action="" accept-charset="utf-8">
+    <form method="post" action="$LOGIN" accept-charset="utf-8">
+      <input type="hidden" name="forward" value="$FORWARD"/>
       <input type="email" name="email" placeholder="e.g. you@yourcompany.biz"/>
       <input type="submit" value="Send Link"/>
     </form>

@@ -295,6 +295,42 @@ command.
         end
       end
 
+      command :privilege do |c|
+        c.syntax = "#{program :name} privilege [OPTIONS] EMAIL|DOMAIN ..."
+        c.summary = "Adds or revokes privileges to an e-mail address or domain."
+        c.description = <<-DESC
+This command will either add or revoke access privileges to one or
+more e-mail address or e-mail domain, associated with a Web domain.
+        DESC
+
+        c.option '-d', '--domain DOMAIN',
+          'Constrain to the given Web domain'
+        c.option '-l', '--list', 'List instead of acting'
+        c.option '-r', '--revoke', 'Revoke privileges instead of granting them'
+
+        c.action do |args, opts|
+          read_config
+          @config = Config.(@config)
+
+          db = @config[:state]
+          warn db.inspect
+
+          domain = opts.domain ||= ''
+
+          if opts.list
+          else
+            method = opts.revoke ? :revoke : :permit
+            db.transaction do
+              args.each do |email|
+                db.acl.send method, domain, email
+                say "added #{email} to #{domain.empty? ? ?* : domain}"
+              end
+            end
+          end
+
+        end
+      end
+
       command :mint do |c|
         c.syntax = "#{program :name} [mint] [OPTIONS] USERID [URL]"
         c.summary = 'Mints a new URL associated with the given user.'

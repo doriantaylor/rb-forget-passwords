@@ -115,15 +115,19 @@ module LazyAuth
       query:  'knock',
       cookie: 'lazyauth',
       email:  'email',
-      logout: 'logout',
+      logout: 'all',
+      forward: 'forward',
     }.transform_values { |x| AT.default x.freeze }).hash_default
 
     Vars = SH.schema({
       user:     'FCGI_USER',
       redirect: 'FCGI_REDIRECT',
+      type:     'FCGI_CONTENT_TYPE',
     }.transform_values { |x| AT.default x.freeze }).hash_default
 
     Targets = SH.schema({
+      login:      '/email-link',
+      logout:     '/logout',
       logout_one: '/logged-out',
       logout_all: '/logged-out-all',
     }.transform_values { |x| ST.default x.freeze }).hash_default
@@ -131,6 +135,7 @@ module LazyAuth
     # mapping override with specific values
     Mapping = SH.schema({
       default_401:      'basic-401.xhtml',
+      default_404:      'basic-404.xhtml',
       default_409:      'basic-409.xhtml',
       default_500:      'basic-500.xhtml',
       knock_bad:        'basic-409.xhtml',
@@ -140,11 +145,13 @@ module LazyAuth
       cookie_not_found: 'basic-409.xhtml',
       cookie_expired:   'cookie-expired.xhtml',
       no_user:          'not-on-list.xhtml',
+      forward_bad:      'uri-409.xhtml',
       email:            'email.xhtml',
       email_bad:        'email-409.xhtml',
       email_not_listed: 'not-on-list.xhtml',
       email_failed:     'basic-500.xhtml',
       email_sent:       'email-sent.xhtml',
+      post_only:        'post-405.xhtml',
     }.transform_values { |x| ST.default x.freeze }).hash_default
 
     # this is the closest thing to "inheritance"
@@ -170,7 +177,8 @@ module LazyAuth
     EMail = SH.schema(
       from:   Dry::Types['string'],
       method: LazyAuth::Types::Coercible::Symbol.default(:sendmail),
-      #options?: SH.map(Dry::Types['symbol'], LazyAuth::Types::Atomic)
+      options?: LazyAuth::Types::Hash.map(
+        LazyAuth::Types::NormSym, LazyAuth::Types::Atomic)
     ).hash_default
 
     # the composed configuration hash
@@ -282,57 +290,71 @@ module LazyAuth
     #
     # @return [Mail::Message] the message sent to the address.
     #
-    def send_link req, address
+    def send_link req, email, uri
       # set up the variables
-      uri   = req_uri req
-      token = @state.new_token address, oneoff: true
+      uri ||= req_uri req
+      token = @state.new_token email, oneoff: true
       vars  = {
         URL:        uri.to_s,
-        PRETTY_URL: uri.to_s.sub(/^https?:\/\/(.*)\/?$/i, "\1"),
+        PRETTY_URL: uri.to_s.sub(/^https?:\/\/(.*?)\/*$/i, "\\1"),
         KNOCK_URL:  make_login_link(uri, token),
-        DOMAIN:     req.base_url.host,
-        EMAIL:      address.to_s,
+        DOMAIN:     URI(req.base_url).host,
+        EMAIL:      email.to_s,
       }
 
       # grab the template since we'll use it
       template = @templates[:email]
 
       # process the templates
-      doc = template.process vars
+      doc = template.process vars: vars
       sub = doc.xpath('normalize-space((//title|//html:title)[1])', XPATHNS)
 
-      html = template.serialize doc, { 'Content-Type' => 'text/html' }
-      text = template.serialize doc, { 'Content-Type' => 'text/plain' }
+      html = template.serialize doc, { 'Accept' => 'text/html' }
+      text = template.serialize doc, { 'Accept' => 'text/plain' }
 
+      # fuuuuuu the block operates as instance_exec
+      em = @email
       Mail.new do
-        from            @email[:from]
-        to              address
-        subject         sub
-        html_part       html
-        text_part       text
-        delivery_method @email[:method], **(@email[:options] || {})
+        from      em[:from]
+        to        email
+        subject   sub
+        html_part { content_type 'text/html'; body html }
+        text_part { body text }
+        delivery_method em[:method], **(em[:options] || {})
       end.deliver
+    end
+
+    def raise_error status, key, req, vars: {}
+      uri = req_uri req
+      resp = Rack::Response.new
+      resp.status = status
+      @templates[key].populate resp, req, vars, base: uri
+      resp.set_header "Variable-#{@vars[:type]}", resp.content_type
+      raise LazyAuth::ErrorResponse, resp
     end
 
     # @!group Actual Handlers
 
+    def default_401 req
+      uri  = req_uri req
+      resp = Rack::Response.new
+      resp.status = 401
+      @templates[:default_401].populate resp, req, {
+        FORWARD: req_uri(req).to_s, LOGIN: @targets[:login] }, base: uri
+      resp.set_header "Variable-#{@vars[:type]}", resp.content_type
+      resp
+    end
+
     def handle_knock req, token
       resp = Rack::Response.new
 
-      unless token_ok? token
-        resp.status = 409
-        @templates[:knock_bad].populate resp, req
-        raise LazyAuth::ErrorResponse, resp
-      end
+      raise_error(409, :knock_bad, req) unless token_ok? token
 
-      unless user = @state.user_for(token)
-        resp.status = 403
-        @templates[:knock_not_found].populate resp, req
-        raise LazyAuth::ErrorResponse, resp
-      end
+      raise_error(403, :knock_not_found, req) unless
+        user = @state.user_for(token)
 
       # stamp the knock token so we know not to use it again
-      @state.stamp_token knock, req.ip
+      @state.stamp_token token, req.ip
 
       # remove existing cookie
       if (token = req.cookies[@keys[:cookie]])
@@ -348,8 +370,8 @@ module LazyAuth
       token = @state.new_token user, cookie: true
 
       # set the user and redirect location as variables
-      resp.set_header "Variable-#{user_var}", user
-      resp.set_header "Variable-#{redirect_var}", target.to_s
+      resp.set_header "Variable-#{@vars[:user]}", user.to_s
+      resp.set_header "Variable-#{@vars[:redirect]}", target.to_s
       resp.set_cookie @keys[:cookie], {
         value: token, expires: Time.at(2**31-1),
         secure: req.ssl?,  httponly: true,
@@ -367,23 +389,16 @@ module LazyAuth
     def handle_cookie req, token
       resp = Rack::Response.new
 
-      unless token_ok? token
-        resp.status = 409
-        @templates[:cookie_bad].populate resp, req
-        raise LazyAuth::ErrorResponse, resp
-      end
+      raise_error(409, :cookie_bad, req) unless token_ok? token
 
-      unless user = @state.user_for(token, cookie: true)
-        resp.status = 403
-        @templates[:no_user].populate resp, req
-        raise LazyAuth::ErrorResponse, resp
-      end
+      reaise_error(403, :no_user, req) unless
+        user = @state.user_for(token, cookie: true)
 
       # stamp the token
       @state.stamp_token token, req.ip
 
       # just set the variable
-      resp.set_header "Variable-#{user_var}", user
+      resp.set_header "Variable-#{@vars[:user]}", user.to_s
 
       # content-length has to be present but empty or it will crap out
       resp.set_header 'Content-Length', ''
@@ -395,21 +410,23 @@ module LazyAuth
       uri  = req_uri req
       resp = Rack::Response.new
 
+      # check that the forwarding URI is well-formed and has the same
+      # scheme/authority
+      forward = uri + req.POST[@keys[:forward]] rescue nil
+      raise_error(409, :forward_bad, req) unless forward and
+        (forward = forward.normalize).host == uri.host
+
       # obtain the email address from the form
-      unless address = email_in(req.POST[@keys[:email]])
-        resp.status = 409
-        @templates[:email_bad].populate resp, req
-        raise LazyAuth::ErrorResponse, resp
-      end
+      raise_error(409, :email_bad, req, {
+        EMAIL: address.to_s, LOGIN: @targets[:login].to_s,
+        FORWARD: forward.to_s }) unless
+        address = email_in(req.POST[@keys[:email]])
 
       # XXX TODO wrap this business in a transaction like an adult?
 
       # check the email against the list
-      unless @state.acl.listed? uri, address
-        resp.status = 401
-        @templates[:email_not_listed].populate resp, req
-        raise LazyAuth::ErrorResponse, resp
-      end
+      raise_error(401, :email_not_listed, req) unless
+        @state.acl.listed? uri, address
 
       # XXX TODO consider rate-limiting so as not to bombard the
       # target with emails; return either 429 (too many requests) or
@@ -417,27 +434,29 @@ module LazyAuth
 
       # find or create the user based on the email (this should never
       # fail, except internally)
-      @state.new_user email
+      @state.new_user address
 
       # send the email
       begin
-        send_link req, address
+        send_link req, address, forward
       rescue StandardError => e
         # XXX generic logger???
-        warn e.inspect
+        warn e.full_message
+        warn caller
 
         # anyway,,,
-        resp.status = 500
-        @templates[:email_failed].populate resp, req
-        raise LazyAuth::ErrorResponse, resp
+        raise_error(500, :email_failed, req)
       end
 
-      # return 401 still but with 'check email' body
-      resp.status = 401
-      @templates[:email_sent].populate resp, req
+      # return 200 now because this is now a content handler
+      resp.status = 200
+      @templates[:email_sent].populate resp, req, {
+        FORWARD: forward.to_s, FROM: @email[:from].to_s, EMAIL: address.to_s },
+        base: uri
     end
 
-    def handle_logout req, all
+    def handle_logout req, all = nil
+      all = req.GET[@keys[:logout]] if all.nil?
       all = /^\s*(1|true|on|yes)\s*$/i.match? all.to_s
 
       resp = Rack::Response.new
@@ -467,13 +486,28 @@ module LazyAuth
       resp
     end
 
-    def handle_post req
-      return Rack::Response[403, { 'Content-Type' => 'text/plain' }, 'wat lol']
+    # def handle_post req
+    #   return Rack::Response[403, { 'Content-Type' => 'text/plain' }, 'wat lol']
 
-      if logout = req.POST[@keys[:logout]]
-        handle_logout req, logout
-      elsif email = req.POST[@keys[:email]]
-        handle_login req, email
+    #   if logout = req.POST[@keys[:logout]]
+    #     handle_logout req, logout
+    #   elsif email = req.POST[@keys[:email]]
+    #     handle_login req, email
+    #   elsif token = req.cookies[@keys[:cookie]]
+    #     # next check for a cookie
+    #     handle_cookie req, token
+    #   else
+    #     default_401 req
+    #   end
+    # end
+
+    def handle_auth req
+      if knock = req.GET[@keys[:query]]
+        # check for a knock first; this overrides everything
+        handle_knock req, knock
+      # elsif req.post?
+      #  # next check for a login/logout attempt
+      #  handle_post req
       elsif token = req.cookies[@keys[:cookie]]
         # next check for a cookie
         handle_cookie req, token
@@ -482,13 +516,31 @@ module LazyAuth
       end
     end
 
-    def default_401 req
-      resp = Rack::Response.new
-      resp.status = 401
-      @templates[:default_401].populate resp, req
+    def handle_content req
+      uri = req_uri req
+      if proc = @dispatch[uri.path]
+        return instance_exec req, &proc
+      else
+        # return 404 lol
+        raise_error(404, :default_404, req)
+      end
     end
 
     # @!endgroup
+
+    DISPATCH = {
+      login: -> req {
+        warn self
+        raise_error(405, :post_only, req) unless req.post?
+
+        handle_login req
+      },
+      logout: -> req {
+        raise_error(405, :post_only, req) unless req.post?
+
+        handle_logout req
+      },
+    }
 
     public
 
@@ -503,6 +555,17 @@ module LazyAuth
 
       # then assign members
       config.each { |key, value| instance_variable_set "@#{key.to_s}", value }
+
+      warn @email.inspect
+
+      # create a dispatch table for content requests
+      # XXX this will have to be expanded for multiple hosts
+      @dispatch = @targets.reduce({}) do |a, pair|
+        if proc = DISPATCH[pair.first]
+          a[pair.last] ||= proc
+        end
+        a
+      end.compact.to_h
 
     end
 
@@ -525,17 +588,10 @@ module LazyAuth
       warn env.inspect if @debug
 
       begin
-        resp = if knock = req.GET[@keys[:query]]
-                 # check for a knock first; this overrides everything
-                 handle_knock req, knock
-               elsif req.post?
-                 # next check for a login/logout attempt
-                 handle_post req
-               elsif token = req.cookies[@keys[:cookie]]
-                 # next check for a cookie
-                 handle_cookie req, token
+        resp = if env['FCGI_ROLE'] == 'AUTHORIZER'
+                 handle_auth req
                else
-                 default_401 req
+                 handle_content req
                end
       rescue LazyAuth::ErrorResponse => e
         resp = e.response

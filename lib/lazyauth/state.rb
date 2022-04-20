@@ -198,10 +198,13 @@ module LazyAuth
           def m.permit domain, email, force: false
             # insert or update
             domain = (
-              domain.respond_to?(:host) ? domain.host : domain).strip.downcase
+              domain.respond_to?(:host) ? domain.host : domain
+            ).to_s.strip.downcase
             email = email.to_s.strip.downcase
+            warn "domain: #{domain}, email: #{email}"
             rows = where(domain: domain, address: email).update ok: true
-            return true unless rows == 0
+            warn rows.inspect
+            return true if rows > 0
             insert domain: domain, address: email
             true
           end
@@ -209,10 +212,11 @@ module LazyAuth
           def m.revoke domain, email, force: false
             # update, noop if not present?
             domain = (
-              domain.respond_to?(:host) ? domain.host : domain).strip.downcase
+              domain.respond_to?(:host) ? domain.host : domain
+            ).to_s.strip.downcase
             email = email.to_s.strip.downcase
             rows = where(domain: domain, address: email).update ok: false
-            rows != 0 # if this is true then the record was updated
+            rows > 0 # if this is true then the record was updated
           end
 
           def m.forget domain, email
@@ -220,7 +224,7 @@ module LazyAuth
               domain.respond_to?(:host) ? domain.host : domain).strip.downcase
             email = email.to_s.strip.downcase
             rows = where(domain: domain, address: email).delete
-            rows != 0
+            rows > 0
           end
 
         },
@@ -258,8 +262,10 @@ module LazyAuth
         # sequel has no drop cascade for sqlite and this is on purpose
         db.drop_table table, cascade: true if
           cascade && db.table_exists?(table)
-        m = db.method method
-        m.call table, &proc
+        # m = db.method method
+        # m.call table, &proc
+        warn table
+        db.send method, table, &proc
       end
     end
 
@@ -302,6 +308,7 @@ module LazyAuth
       @db = Sequel.connect dsn
 
       @expiry = expiry
+      warn expiry.inspect
 
       if debug
         require 'logger'
@@ -384,7 +391,7 @@ module LazyAuth
       # this should be a duration
       raise 'Expires should be an ISO8601::Duration' if
         expires && !expires.is_a?(ISO8601::Duration)
-      expires ||= @expiry[cookie ? :cookie : :query]
+      expires ||= @expiry[cookie ? :cookie : :url]
 
       oneoff = false if cookie
 
