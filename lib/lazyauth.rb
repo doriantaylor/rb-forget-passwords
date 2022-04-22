@@ -400,19 +400,20 @@ module LazyAuth
 
       resp = Rack::Response.new
 
+      vars = { LOGIN: @targets[:login], FORWARD: req_uri(req).to_s }
+
       # check if token is well-formed
-      raise_error(409, :cookie_bad, req) unless token_ok? token
+      raise_error(409, :cookie_bad, req, vars: vars) unless token_ok? token
 
       # check if the cookie is still valid
-      raise_error(401, :cookie_expired, req,
-        vars: { LOGIN: @targets[:login], FORWARD: req_uri(req).to_s }) unless
+      raise_error(401, :cookie_expired, req, vars: vars) unless
         @state.token.valid? token, cookie: true
 
       # check if there is an actual user associated with the cookie
-      raise_error(403, :no_user, req) unless
+      raise_error(403, :no_user, req, vars: vars) unless
         user = @state.user_for(token, record: true, cookie: true)
 
-      raise_error(403, :email_not_listed, req) unless
+      raise_error(403, :email_not_listed, req, vars: vars) unless
         @state.acl.listed? req_uri(req), user.email
 
       now = Time.now
@@ -446,15 +447,16 @@ module LazyAuth
       raise_error(409, :forward_bad, req) unless forward and
         (forward = forward.normalize).host == uri.host
 
+      vars = { LOGIN: @targets[:login].to_s, FORWARD: forward.to_s }
+
       # obtain the email address from the form
-      raise_error(409, :email_bad, req, {
-        LOGIN: @targets[:login].to_s, FORWARD: forward.to_s }) unless
+      raise_error(409, :email_bad, req, vars: vars) unless
         address = email_in(req.POST[@keys[:email]])
 
       # XXX TODO wrap this business in a transaction like an adult?
 
       # check the email against the list
-      raise_error(401, :email_not_listed, req) unless
+      raise_error(401, :email_not_listed, req, vars: vars) unless
         @state.acl.listed? uri, address
 
       # XXX TODO consider rate-limiting so as not to bombard the

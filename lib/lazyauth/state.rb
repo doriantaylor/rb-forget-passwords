@@ -14,7 +14,7 @@ module LazyAuth
     TWO_WEEKS   = ISO8601::Duration.new('P2W').freeze
 
     Expiry = LazyAuth::Types::SymbolHash.schema(
-      url:    LazyAuth::Types::Duration.default(TEN_MINUTES),
+      query:  LazyAuth::Types::Duration.default(TEN_MINUTES),
       cookie: LazyAuth::Types::Duration.default(TWO_WEEKS)).hash_default
 
     RawParams = LazyAuth::Types::SymbolHash.schema(
@@ -399,7 +399,7 @@ module LazyAuth
       # this should be a duration
       raise 'Expires should be an ISO8601::Duration' if
         expires && !expires.is_a?(ISO8601::Duration)
-      expires ||= @expiry[cookie ? :cookie : :url]
+      expires ||= @expiry[cookie ? :cookie : :query]
 
       oneoff = false if cookie
 
