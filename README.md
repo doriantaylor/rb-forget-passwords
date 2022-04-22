@@ -2,7 +2,7 @@
 
 LazyAuth is a stand-alone Web authentication module that replicates
 the "forgot-my-password" user flow, which will, on request, e-mail a
-special link to a predefined list of addresses, in lieu of
+special link to an address on a predefined list, in lieu of
 password-based authentication. This module makes use of [a
 lesser-known feature of the FastCGI
 protocol](https://fastcgi-archives.github.io/FastCGI_Specification.html#S6.3)
@@ -31,10 +31,10 @@ authentication credentials to manage, but I would also be burdening
 _myself_ with the chore of fielding requests for new accounts* as
 stragglers trickle in, as well as reset or retrieve lost passwords.
 
-> * I suppose I could set up UI for _them_ to create their own
->   accounts and retrieve their lost passwords, but that would
->   actually be more work than the solution I propose here, and the
->   net effect would be to _further_ burden my users.
+> \* I suppose I could set up UI for _them_ to create their own
+> accounts and retrieve their lost passwords, but that would actually
+> be more work than the solution I propose here, and the net effect
+> would be to _further_ burden my users.
 
 The solution to this problem stems from observing that the long tail
 of Web authentication is serviced by the archetypal **forgot my
@@ -42,12 +42,12 @@ password** flow _itself_, so why force people to go through the extra
 step of _creating_, and then _remembering_, a password?
 
 The goal, then, is to create an authentication module that replicates
-the forgot-my-password flow, provides about the same security as Basic
-authentication over SSL, has a generic-enough user interface to be
-merged seamlessly into any existing system, and otherwise interacts
-minimally with any downstream access control mechanism or Web
-application, including static content. An additional requirement is
-that a mapping scheme (e.g. website domain to e-mail domain) can be
+the forgot-my-password flow, provides about the same security as
+`Basic` authentication over SSL, has a generic-enough user interface
+to be merged seamlessly into any existing system, and otherwise
+interacts minimally with any downstream access control mechanism or
+Web application, including static content. An additional requirement
+is that a mapping scheme (e.g. website domain to e-mail domain) can be
 set up to provision identities (accounts) automatically.
 
 ## How It Works
@@ -83,13 +83,14 @@ company has access.
 
 This module uses an SQL database as its primary storage mechanism. It
 has been tested with SQLite and PostgreSQL, though in principle it
-should work with anything for which there is a Sequel driver. Use of
-SQLite is discouraged in production, due to its well-known inability
-to handle concurrent transactions. There is a secondary storage in the
-module itself for the little over a dozen user interface templates.
-The locations of these (and thus their contents) can be overridden in
-a configuration file, along with a number of other parameters, a few
-of which (e.g., data source name, e-mail sender) are necessary for the
+should work with anything for which there is a
+[Sequel](https://sequel.jeremyevans.net/) driver. Use of SQLite is
+discouraged in production, due to its well-known inability to handle
+concurrent transactions. There is a secondary storage in the module
+itself for the little over a dozen user interface templates.  The
+locations of these (and thus their contents) can be overridden in a
+configuration file, along with a number of other parameters, a few of
+which (e.g., data source name, e-mail sender) are necessary for the
 module to operate.
 
 ## Usage
@@ -133,8 +134,8 @@ principle it is usable in other systems. What follows is the
 configuration for Apache 2.4.x or newer.
 
 First, we need to declare the authenticator (here it can be called
-anything but we are appropriately calling it `LazyAuth`) and where it
-is:
+anything but we are appropriately calling it `LazyAuth`) and where
+it's listening:
 
 ```apache
 AuthnzFcgiDefineProvider authn LazyAuth fcgi://localhost:10101/
@@ -226,7 +227,7 @@ ProxyPass /logout     fcgi://localhost:10101/logout
 LazyAuth has a number of UI states that are embedded in the gem. These
 take the form of template files. The functionality of these templates
 is currently at the absolute bare minimum required to do the job. The
-templates are XHTML, with a simple placeholder substitution
+templates are XHTML, with a basic placeholder substitution
 functionality, which can take place either in processing instructions
 (`<?var $WHATEVER?>`), or attribute values (`<elem
 attr="$WHATEVER"/>`).
@@ -239,12 +240,12 @@ attr="$WHATEVER"/>`).
 > it gets its own template file. Anything that needs to be addressed
 > in any individual state, save for a small number of substitutions in
 > text nodes or attribute values, can be done by supplanting its file
-> with a new one. Any styling or page composition needed to knit these
-> states into their surroundings can be handled through an exterior
-> mechanism, which I will endeavour to write up separately. I may
-> consider different or additional template mechanisms (e.g. markdown,
-> or any of the zillion non-standard template engines) at some point
-> in the future.
+> with a different one. Any styling or page composition needed to knit
+> these states into their surroundings can be handled through an
+> exterior mechanism, which I will endeavour to write up separately. I
+> may consider different or additional template mechanisms
+> (e.g. markdown, or any of the zillion non-standard template engines)
+> at some point in the future.
 
 The configuration parameter `transform` under `templates` will cause
 an `xml-stylesheet` processing instruction to be inserted into all
@@ -391,33 +392,19 @@ The TCP port, default `10101`.
 This is the configuration group involving the persistent state,
 i.e. the database.
 
-#### `dsn`
-
-This is the DSN (data source name), i.e., the connection string that
-gets passed into Sequel.
-
-#### `user`
-
-The user name can be rolled into the DSN or separated out.
-
-#### `password`
-
-Same goes for the password.
-
-#### `options`
-
-Same goes for any other options; these are just passed to Sequel
-uninspected.
-
-#### `expiry`
-
-This structure deals with the expiration times of the different kinds
-of token, which are represented as ISO 8601 durations
-
-* `query` handles the expiry for the token in the link's query string,
-  defaulting to 10 minutes (`PT10M`)
-* `cookie` handles the expiry for the cookie, defaulting to two weeks
-  (which gets refreshed by accessing the site; `P2W`)
+* `dsn` is the DSN (data source name), i.e., the connection string
+  that gets passed into Sequel.
+* `user` is the user name, which can be rolled into the DSN or
+  separated out.
+* Same goes for the `password`.
+* `options` are additional options that get passed directly to the
+  Sequel constructor.
+* `expiry` deals with the expiration times of the different kinds of
+  token, which are represented as ISO 8601 durations:
+  * `query` handles the expiry for the token in the link's query
+    string, defaulting to 10 minutes (`PT10M`)
+  * `cookie` handles the expiry for the cookie, defaulting to two weeks
+    (which gets refreshed by accessing the site; `P2W`)
 
 ### `keys`
 
@@ -513,7 +500,7 @@ Bug reports and pull requests are welcome at
 
 ## Copyright & License
 
-©2019 [Dorian Taylor](https://doriantaylor.com/)
+©2019-2022 [Dorian Taylor](https://doriantaylor.com/)
 
 This software is provided under
 the [Apache License, 2.0](https://www.apache.org/licenses/LICENSE-2.0).
