@@ -555,8 +555,10 @@ and `nginx`) have a number of phases, most of them happening _before_
 the content handler, that can be addressed directly—provided you write
 your module in C. What `mod_authnz_fcgi` does is tap the
 _authentication_ phase of Apache's request-handling loop and open it
-up to cheap scripts written in any language that speak FastCGI. Some
-observations:
+up to cheap scripts written in any language that speak FastCGI. This
+means that stand-alone modules like LazyAuth can be used in
+conjunction with *any* downstream Web application framework or
+development strategy. Some additional observations:
 
 * **It doesn't have to be FastCGI**: There is really no reason in
   principle why, with some creative reading of the HTTP protocol, that
