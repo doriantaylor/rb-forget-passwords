@@ -246,6 +246,9 @@ attr="$WHATEVER"/>`).
 > may consider different or additional template mechanisms
 > (e.g. markdown, or any of the zillion non-standard template engines)
 > at some point in the future.
+>
+> Note as well that the templates are not currently internationalized,
+> but I am open to making them so if there is sufficient demand.
 
 The configuration parameter `transform` under `templates` will cause
 an `xml-stylesheet` processing instruction to be inserted into all
