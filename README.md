@@ -1,4 +1,4 @@
-# LazyAuth - Web Authentication, but lazy
+# LazyAuth: Web Authentication, But Lazy
 
 LazyAuth is a stand-alone Web authentication module that replicates
 the "forgot-my-password" user flow, which will, on request, e-mail a
@@ -414,8 +414,10 @@ forms.
 * `query` is the key for the URL query string component that contains
   the nonce token; it defaults to `knock`.
 * `cookie` is the key for the cookie, which defaults to `lazyauth`.
-* `email` is the form key for the e-mail address, defaulting to `email`.
-* `logout` is the form key for whether to log out all tokens or just
+* `email` is the form key where the user's e-mail address is expected,
+  defaulting to `email`.
+* `logout` is the form key which would be set to something true-ish
+  (`true`, `yes`, `on`, `1`) for whether to log out all tokens or just
   the current one, defaulting to `logout`.
 
 ### `vars`
