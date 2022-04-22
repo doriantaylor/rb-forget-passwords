@@ -528,7 +528,10 @@ of 2022-04-22), the focus can shift to keeping it that way.
 
 Localizing the templates is definitely a possibility, as well as
 making domain-specific overrides so a single LazyAuth daemon could
-handle multiple domains with tailor-fit responses for each.
+handle multiple domains with tailor-fit responses for each. I am less
+sanguine about going hog-wild with the templates but I could see some
+kind of future plug-in interface so people could use their favourite
+flavour of templating engine.
 
 ### Reconcile with OAuth
 
