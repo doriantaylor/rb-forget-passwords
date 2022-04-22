@@ -490,6 +490,75 @@ email:
   # additional SMTP configuration would go here, if applicable.
 ```
 
+## Future Directions
+
+This project began on something of a lark, with the intent to make a
+quick-and-easy passwordless authentication mechanism with zero UI, or
+rather, _I_ was the UI, manually e-mailing magic links to people. What
+I found when I put this scheme into production was that people balked
+because the experience was actually *too* seamless: a prospective
+client insisted on believing a confidential proposal was just out on
+the open internet for anybody to see, even though this was not the
+case. As a result, I shelved this code for three years because I
+didn't have time to do what was necessary to ameliorate it.
+
+What I had here was an _optics_ problem: the user needs to _see_ that
+the content is protected, and logging in has to be a positive action;
+something that they _do_. This meant going from _zero_ UI, to rather
+quite a bit of it. As such, I anticipate what was once a one-off
+endeavour is now a significant Project™ that will have to be
+maintained and expanded upon.
+
+What follows are some remarks around where things might go.
+
+### How about a test suite?
+
+My philosophy around automated tests is that they are useful for
+ensuring the behaviour of a piece of code without having to look
+directly at it. In my experience, getting little products like these
+to a functioning state is *system*-heavy, which has a crapload of
+overhead setting up a test regime, and furthermore the various
+constituent parts either very obviously work or very obviously do
+not. In other words, eyeballing it is a perfectly satisfactory quality
+assurance regime in the early stages of development (at least until it
+gets out of hand, which in this case it didn't). Now that it works (as
+of 2022-04-22), the focus can shift to keeping it that way.
+
+### How about expanding out the templates?
+
+Localizing the templates is definitely a possibility, as well as
+making domain-specific overrides so a single LazyAuth daemon could
+handle multiple domains with tailor-fit responses for each.
+
+### The really interesting thing is `mod_authnz_fcgi`
+
+At least in principle. The actual module itself is a bit of a dog
+(although not un-groomable), but the fact that the FastCGI people had
+the presence of mind to design modes for things other than content
+(there is a `FILTER` role as well) is actually quite interesting.
+
+The vast majority of Web development happens exclusively inside what
+can be termed a _content handler_. This is where all server-side
+platforms and frameworks operate. In reality, Web servers (like Apache
+and `nginx`) have a number of phases, most of them happening _before_
+the content handler, that can be addressed directly—provided you write
+your module in C. What `mod_authnz_fcgi` does is tap the
+_authentication_ phase of Apache's request-handling loop and open it
+up to cheap scripts written in any language that speak FastCGI. Some
+observations:
+
+* **It doesn't have to be FastCGI**: There is really no reason in
+  principle why, with some creative reading of the HTTP protocol, that
+  this functionality couldn't be handled 100% by a stand-alone Web
+  service that the main workhorse server proxies to.
+* **This could be done for any phase**: Using said creative reading of
+  the HTTP protocol, this puts _any_ phase in the request-handling
+  process, for either Apache _or_ `nginx`, on the table, assuming the
+  appropriate module (in C) is written for each.
+
+So, yeah, _big_ opportunity there to take modularity in Web
+development to the next level.
+
 ## Installation
 
 You know how to do this:
