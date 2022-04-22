@@ -530,6 +530,17 @@ Localizing the templates is definitely a possibility, as well as
 making domain-specific overrides so a single LazyAuth daemon could
 handle multiple domains with tailor-fit responses for each.
 
+### Reconcile with OAuth
+
+The authentication cookie used by LazyAuth bears a striking
+resemblance to an [OAuth](https://oauth.net/) bearer token, such that
+could actually _be_ (at least a proxy for) an OAuth bearer token.
+Indeed, bearer tokens would make for an _excellent_ cleavage plane for
+_segmented_ authentication: Method X to bearer token, then bearer
+token to `REMOTE_USER`. This means we could have multiple
+authentication mechanisms (LazyAuth, OAuth, X.509, Kerberos, boring
+old password, whatever) operating in the same space at once.
+
 ### The really interesting thing is `mod_authnz_fcgi`
 
 At least in principle. The actual module itself is a bit of a dog
