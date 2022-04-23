@@ -9,8 +9,10 @@ module LazyAuth
 
     private
 
+    # ascii token
     ASCII = /^[A-Za-z_][0-9A-Za-z_.-]*$/
 
+    # hostname
     HN = /^(?:[0-9a-z-]+(?:\.[0-9a-z-]+)*|[0-9a-f]{,4}(?::[0-9a-f]{,4}){,7})$/i
 
     public
@@ -51,8 +53,18 @@ module LazyAuth
 
     RelativePathname = Types.Constructor(::Pathname) { |x| Pathname(x) }
 
+    ExtantPathname = Types.Constructor(::Pathname) do |x|
+      out = Pathname(x).expand_path
+      dir = out.dirname
+      raise Dry::Types::CoercionError, "#{dir} does not exist" unless
+        out.exist? || dir.exist?
+
+      out
+    end
+
+
     # should be WritablePathname but whatever
-    AbsolutePathname = Types.Constructor(::Pathname) do |x|
+    WritablePathname = Types.Constructor(::Pathname) do |x|
       out = Pathname(x)
       dir = out.expand_path.dirname
       raise Dry::Types::CoercionError, "#{dir} is not writable" unless

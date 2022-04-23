@@ -241,6 +241,7 @@ module LazyAuth
           String :address, null: false, text: true
           TrueClass :ok, null: false, default: true
           DateTime :seen,  null: false, default: S::CURRENT_TIMESTAMP
+          primary_key [:domain, :address], name: :pk_acl
           constraint :ck_domain,
           domain: S.function(:trim, S.function(:lower, :domain))
           constraint :ck_address,
@@ -314,6 +315,15 @@ module LazyAuth
     def initialize dsn, create: true, user: nil, password: nil,
         expiry: { query: TEN_MINUTES, cookie: TWO_WEEKS }, debug: false
       @db = Sequel.connect dsn
+
+      # XXX more reliable way to get this info?
+      if @db.is_a? Sequel::Postgres::Database
+        # anyway whatever
+        @db.extension :constant_sql_override
+        @db.set_constant_sql S::CURRENT_TIMESTAMP,
+          "TIMEZONE('UTC', CURRENT_TIMESTAMP)"
+          # "(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"
+      end
 
       @expiry = Expiry.(expiry)
       # warn expiry.inspect
@@ -403,12 +413,11 @@ module LazyAuth
 
       oneoff = false if cookie
 
-      now = DateTime.now
+      now = Time.now.gmtime
       # the iso8601 guy didn't make it so you could add a duration to
       # a DateTime, even though ISO8601::DateTime embeds a DateTime.
       # noOOoOOOo that would be too easy; instead you have to reparse it.
-      expires = now +
-        (expires.to_seconds(ISO8601::DateTime.new now.iso8601) / 86400.0)
+      expires = now + expires.to_seconds(ISO8601::DateTime.new now.iso8601)
       # anyway an integer to DateTime is a day, so we divide.
 
       uuid = UUIDTools::UUID.random_create
@@ -486,7 +495,8 @@ module LazyAuth
         UUID::NCName.from_ncname(token) : token
       exp = @expiry[cookie ? :cookie : :query]
       # this is dumb that this is how you have to do this
-      delta = from.to_time + exp.to_seconds(ISO8601::DateTime.new from.iso8601)
+      delta = from.to_time.gmtime +
+        exp.to_seconds(ISO8601::DateTime.new from.iso8601)
       # aaanyway...
       rows = @token.where(
         token: uuid).fresh(cookie: cookie).update(expires: delta)

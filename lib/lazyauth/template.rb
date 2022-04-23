@@ -35,7 +35,7 @@ module LazyAuth
         LazyAuth::Types::String).default({}.freeze)
 
       RawParams = LazyAuth::Types::SymbolHash.schema(
-        path:       LazyAuth::Types::AbsolutePathname.default(DEFAULT_PATH),
+        path:       LazyAuth::Types::ExtantPathname.default(DEFAULT_PATH),
         mapping:    THash,
         base?:      LazyAuth::Types::URI,
         transform?: LazyAuth::Types::URI,

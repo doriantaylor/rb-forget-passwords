@@ -265,7 +265,8 @@ module LazyAuth
     # @return [Time] the new time
     #
     def time_delta duration, from = Time.now
-      from + duration.to_seconds(ISO8601::DateTime.new from.iso8601)
+      from.to_time.gmtime +
+        duration.to_seconds(ISO8601::DateTime.new from.iso8601)
     end
 
     # Expire a token.
@@ -380,9 +381,10 @@ module LazyAuth
 
       # set the user and redirect location as variables
       resp.set_header "Variable-#{@vars[:user]}", user.to_s
-      resp.set_header "Variable-#{@vars[:redirect]}", target.to_s
+      resp.set_header "Variable-#{@vars[:redirect]}", target.to_s if
+        target != uri # (note this should always be true)
       resp.set_cookie @keys[:cookie], {
-        value: token, secure: req.ssl?, httponly: true,
+        value: token, secure: req.ssl?, httponly: true, domain: uri.host,
         expires: time_delta(@state.expiry[:cookie]),
       }
 

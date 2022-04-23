@@ -28,7 +28,7 @@ module LazyAuth
     Config = LazyAuth::App::Config.schema(
       host: LazyAuth::Types::Hostname.default('localhost'.freeze),
       port: Dry::Types['integer'].default(10101),
-      pid?: LazyAuth::Types::AbsolutePathname).hash_default
+      pid?: LazyAuth::Types::ExtantPathname).hash_default
 
     def normalize_hash h, strings: false, flatten: false, dup: false,
         freeze: false
@@ -313,7 +313,7 @@ more e-mail address or e-mail domain, associated with a Web domain.
           @config = Config.(@config)
 
           db = @config[:state]
-          warn db.inspect
+          # warn db.inspect
 
           domain = opts.domain ||= ''
 

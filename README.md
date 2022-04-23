@@ -180,6 +180,7 @@ following `mod_rewrite` configuration needs to be in place to turn the
 environment variable back into an actual redirect:
 
 ```apache
+RewriteCond %{QUERY_STRING} .+
 RewriteCond %{ENV:FCGI_REDIRECT} .+
 RewriteRule .* %{ENV:FCGI_REDIRECT} [R=307,L,QSD]
 ```
@@ -189,6 +190,11 @@ RewriteRule .* %{ENV:FCGI_REDIRECT} [R=307,L,QSD]
 > above. We also use `QSD` to remove the query string from the
 > _currently-requested_ URI, and redirect with `307` to preserve the
 > request method.
+>
+> Note as well that URL rewriting typically happens _before_
+> authorization, so the environment variable will not yet be set
+> unless you trick the `RewriteRule` to run in a later phase (e.g. by
+> putting it in a `<Directory>` block or `.htaccess`).
 
 We also need to account for _unsuccessful_ responses from the
 authentication module, since certain headers (notably `Content-Type`)
@@ -210,17 +216,18 @@ ProxyPass /email-link fcgi://localhost:10101/email-link
 ProxyPass /logout     fcgi://localhost:10101/logout
 ```
 
-> An earlier design had these operations controlled by `POST`
-> parameters and were thus ostensibly not necessary, however it turns
-> out that `mod_authnz_fcgi` does not convey request body content to
-> the downstream FastCGI script, causing the latter to crash with a
-> protocol error. While the handling is less than delicate, this is
-> actually a reasonable expectation, as request bodies are only read
-> once off the wire and will thus be already consumed (whether or not
-> they contain the fields to which LazyAuth is sensitive) when the
-> content handler is invoked. (The way Apache handles the request
-> body, it /can/ be duplicated and reinserted into the input stream,
-> but that is a whole project unto itself.
+> An earlier design had these operations controlled exclusively by
+> `POST` parameters on _any_ resource, and therefore these
+> purpose-made resources were ostensibly not necessary. However, it
+> turns out that `mod_authnz_fcgi` does not convey request body
+> content to the downstream FastCGI script, causing the latter to
+> crash with a protocol error. While the handling is less than
+> delicate, this is actually a reasonable expectation, as request
+> bodies are only read once off the wire and will thus be already
+> consumed (whether or not they contain the fields to which LazyAuth
+> is sensitive) when the content handler is invoked. (The way Apache
+> handles the request body, it _can_ be duplicated and reinserted into
+> the input stream, but that is a whole project unto itself.
 
 ## Templates
 
@@ -254,7 +261,7 @@ The configuration parameter `transform` under `templates` will cause
 an `xml-stylesheet` processing instruction to be inserted into all
 outgoing templates with the location of an XSLT stylesheet, enabling
 arbitrary manipulations (and also the main reason why these templates
-are XHTML,).
+are XHTML and not regular HTML).
 
 > **NOTE 2022-04-22** this `lazyauth-cli extract` business is still
 > under construction.

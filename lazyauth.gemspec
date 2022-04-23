@@ -51,7 +51,8 @@ certain contexts, namely the ones the author of this gem is interested in.
   # stuff we use
   spec.add_runtime_dependency 'commander',  '>= 4.4'
   spec.add_runtime_dependency 'deep_merge', '>= 1.2'
-  spec.add_runtime_dependency 'dry-schema', '>= 1.0'
+  spec.add_runtime_dependency 'dry-schema', '>= 1.9.1'
+  spec.add_runtime_dependency 'dry-types',  '>= 1.5.1'
   spec.add_runtime_dependency 'fcgi',       '>= 0.9.2.1'
   spec.add_runtime_dependency 'iso8601',    '>= 0.12'
   spec.add_runtime_dependency 'mail',       '>= 2.7.1'
