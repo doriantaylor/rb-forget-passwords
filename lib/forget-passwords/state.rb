@@ -99,11 +99,15 @@ module ForgetPasswords
 
             def fresh cookie: false, oneoff: nil
               w = { slug: !cookie }
-              w[:oneoff] = !!oneoff unless oneoff.nil?
+              if oneoff.nil?
+                oneoff = !cookie
+              else
+                w[:oneoff] = !!oneoff
+              end
               base = where(**w) { expires > S::CURRENT_TIMESTAMP }
 
-              base = base.left_join(Usage.latest, [:token]).where(seen: nil) if
-                !cookie && oneoff
+              base = base.left_join(
+                Usage.latest, [:token]).where(seen: nil) if !cookie and oneoff
 
               base
             end

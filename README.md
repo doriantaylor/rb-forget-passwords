@@ -1,8 +1,8 @@
-# ForgetPasswords: Web Authentication, But Lazy
+# Forget Passwords: Log in the Lazy Way
 
-ForgetPasswords is a stand-alone Web authentication module that replicates
-the "forgot-my-password" user flow, which will, on request, e-mail a
-special link to an address on a predefined list, in lieu of
+**Forget Passwords** is a stand-alone Web authentication module that
+replicates the "forgot-my-password" user flow, which will, on request,
+e-mail a special link to an address on a predefined list, in lieu of
 password-based authentication. This module makes use of [a
 lesser-known feature of the FastCGI
 protocol](https://fastcgi-archives.github.io/FastCGI_Specification.html#S6.3)
