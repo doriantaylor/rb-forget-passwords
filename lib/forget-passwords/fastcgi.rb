@@ -2,7 +2,7 @@
 require 'rack/handler'
 require 'rack/handler/fastcgi'
 
-module LazyAuth
+module ForgetPasswords
   # XXX this unfortunate chunk of code exists because of
   # https://bz.apache.org/bugzilla/show_bug.cgi?id=65984
   class FastCGI < Rack::Handler::FastCGI

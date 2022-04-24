@@ -1,6 +1,6 @@
-RSpec.describe LazyAuth do
+RSpec.describe ForgetPasswords do
   it "has a version number" do
-    expect(LazyAuth::VERSION).not_to be nil
+    expect(ForgetPasswords::VERSION).not_to be nil
   end
 
   it "does something useful" do

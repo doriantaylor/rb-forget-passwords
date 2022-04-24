@@ -1,7 +1,7 @@
-require 'lazyauth/version'
-require 'lazyauth/types'
-require 'lazyauth/state'
-require 'lazyauth/template'
+require 'forget-passwords/version'
+require 'forget-passwords/types'
+require 'forget-passwords/state'
+require 'forget-passwords/template'
 require 'uuid-ncname'
 
 require 'dry-types'
@@ -13,7 +13,7 @@ require 'rack/response'
 
 require 'mail'
 
-module LazyAuth
+module ForgetPasswords
 
   # An error response (with status, headers, etc) that can be raised
   # and caught.
@@ -57,7 +57,7 @@ module LazyAuth
     #
     # @param message [Rack::Response, #to_s] the response object or string
     #
-    # @return [LazyAuth::ErrorResponse] a new error response
+    # @return [ForgetPasswords::ErrorResponse] a new error response
     #
     def self.exception message
       # XXX TODO auto generate (x)html from text message?
@@ -74,7 +74,7 @@ module LazyAuth
     # @param message [nil, Rack::Response, #to_s] optional response
     #  object or string
     #
-    # @return [LazyAuth::ErrorResponse] a new error response
+    # @return [ForgetPasswords::ErrorResponse] a new error response
     #
     def exception message = nil
       return self if message.nil?
@@ -97,18 +97,18 @@ module LazyAuth
     XPATHNS = { html: 'http://www.w3.org/1999/xhtml' }.freeze
 
     # we want all these constants to be public so they show up in the docs
-    DEFAULT_KEYS = { query: 'knock', cookie: 'lazyauth',
+    DEFAULT_KEYS = { query: 'knock', cookie: 'forgetpw',
       email: 'email', logout: 'logout' }.freeze
     DEFAULT_VARS = { user: 'FCGI_USER', redirect: 'FCGI_REDIRECT'}.freeze
     DEFAULT_PATH = (Pathname(__FILE__) + '../../content').expand_path.freeze
 
-    SH = LazyAuth::Types::SymbolHash
-    ST = LazyAuth::Types::String
-    AT = LazyAuth::Types::ASCIIToken
+    SH = ForgetPasswords::Types::SymbolHash
+    ST = ForgetPasswords::Types::String
+    AT = ForgetPasswords::Types::ASCIIToken
 
     Keys = SH.schema({
       query:  'knock',
-      cookie: 'lazyauth',
+      cookie: 'forgetpw',
       email:  'email',
       logout: 'all',
       forward: 'forward',
@@ -150,35 +150,35 @@ module LazyAuth
     }.transform_values { |x| ST.default x.freeze }).hash_default
 
     # this is the closest thing to "inheritance"
-    RawTemplates = LazyAuth::Template::Mapper::RawParams.schema(
+    RawTemplates = ForgetPasswords::Template::Mapper::RawParams.schema(
       mapping: Mapping
     ).hash_default
 
     # which means we have to duplicate the constructor and its default
-    Templates = LazyAuth::Types.Constructor(LazyAuth::Template::Mapper) do |x|
-      if x.is_a? LazyAuth::Template::Mapper
+    Templates = ForgetPasswords::Types.Constructor(ForgetPasswords::Template::Mapper) do |x|
+      if x.is_a? ForgetPasswords::Template::Mapper
         x
       else
         raw  = RawTemplates.(x)
         path = raw.delete :path
-        LazyAuth::Template::Mapper.new path, **raw
+        ForgetPasswords::Template::Mapper.new path, **raw
       end
     end.default do
       raw  = RawTemplates.({})
       path = raw.delete :path
-      LazyAuth::Template::Mapper.new path, **raw
+      ForgetPasswords::Template::Mapper.new path, **raw
     end
 
     EMail = SH.schema(
       from:   Dry::Types['string'],
-      method: LazyAuth::Types::Coercible::Symbol.default(:sendmail),
-      options?: LazyAuth::Types::Hash.map(
-        LazyAuth::Types::NormSym, LazyAuth::Types::Atomic)
+      method: ForgetPasswords::Types::Coercible::Symbol.default(:sendmail),
+      options?: ForgetPasswords::Types::Hash.map(
+        ForgetPasswords::Types::NormSym, ForgetPasswords::Types::Atomic)
     ).hash_default
 
     # the composed configuration hash
     Config = SH.schema(
-      state:      LazyAuth::State::Type,
+      state:      ForgetPasswords::State::Type,
       keys:       Keys,
       vars:       Vars,
       targets:    Targets,
@@ -337,7 +337,7 @@ module LazyAuth
       resp.status = status
       @templates[key].populate resp, req, vars, base: uri
       resp.set_header "Variable-#{@vars[:type]}", resp.content_type
-      raise LazyAuth::ErrorResponse, resp
+      raise ForgetPasswords::ErrorResponse, resp
     end
 
     # @!group Actual Handlers
@@ -613,7 +613,7 @@ module LazyAuth
 
       # unless env['FCGI_ROLE'] == 'AUTHORIZER'
       #   resp.status = 500
-      #   resp.body << "LazyAuth::App only works as a FastCGI authorizer!"
+      #   resp.body << "ForgetPasswords::App only works as a FastCGI authorizer!"
       #   return resp.finish
       # end
 
@@ -625,7 +625,7 @@ module LazyAuth
                else
                  handle_content req
                end
-      rescue LazyAuth::ErrorResponse => e
+      rescue ForgetPasswords::ErrorResponse => e
         resp = e.response
       end
 

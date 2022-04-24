@@ -2,6 +2,6 @@
 # -*- mode: enh-ruby -*-
 
 # code is here
-require 'lazyauth/cli'
+require 'forget-passwords/cli'
 
-LazyAuth::CLI.run
+ForgetPasswords::CLI.run

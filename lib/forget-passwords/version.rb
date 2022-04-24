@@ -1,3 +1,3 @@
-module LazyAuth
+module ForgetPasswords
   VERSION = '0.2.8'
 end

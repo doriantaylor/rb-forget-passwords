@@ -2,10 +2,10 @@ require 'nokogiri'
 require 'stringio'
 require 'xml-mixup'
 require 'http-negotiate'
-require 'lazyauth/types'
+require 'forget-passwords/types'
 require 'uri'
 
-module LazyAuth
+module ForgetPasswords
 
   class Template
 
@@ -29,21 +29,21 @@ module LazyAuth
         key.to_s.strip.downcase.gsub(/[[:space:]-]/, ?_).tr_s(?_, ?_).to_sym
       end
 
-      TType = LazyAuth::Types.Instance(LazyAuth::Template)
+      TType = ForgetPasswords::Types.Instance(ForgetPasswords::Template)
 
-      THash = LazyAuth::Types::Hash.map(LazyAuth::Types::NormSym,
-        LazyAuth::Types::String).default({}.freeze)
+      THash = ForgetPasswords::Types::Hash.map(ForgetPasswords::Types::NormSym,
+        ForgetPasswords::Types::String).default({}.freeze)
 
-      RawParams = LazyAuth::Types::SymbolHash.schema(
-        path:       LazyAuth::Types::ExtantPathname.default(DEFAULT_PATH),
+      RawParams = ForgetPasswords::Types::SymbolHash.schema(
+        path:       ForgetPasswords::Types::ExtantPathname.default(DEFAULT_PATH),
         mapping:    THash,
-        base?:      LazyAuth::Types::URI,
-        transform?: LazyAuth::Types::URI,
+        base?:      ForgetPasswords::Types::URI,
+        transform?: ForgetPasswords::Types::URI,
       ).hash_default
 
       public
 
-      Type = LazyAuth::Types.Constructor(self) do |input|
+      Type = ForgetPasswords::Types.Constructor(self) do |input|
         # what we're gonna do is validate the input as a hash, then use it
         input = RawParams.(input)
         path = input.delete :path
@@ -59,8 +59,8 @@ module LazyAuth
         @transform = transform
         @mapping   = mapping.map do |k, v|
           name = normalize k
-          template = v.is_a?(LazyAuth::Template) ? v :
-            LazyAuth::Template.new(self, k, @path + v)
+          template = v.is_a?(ForgetPasswords::Template) ? v :
+            ForgetPasswords::Template.new(self, k, @path + v)
           [name, template]
         end.to_h
       end
@@ -71,8 +71,8 @@ module LazyAuth
 
       def []= key, path
         name = normalize key
-        @mapping[name] = path.is_a?(LazyAuth::Template) ? path :
-          LazyAuth::Template.new(self, key, @path + path)
+        @mapping[name] = path.is_a?(ForgetPasswords::Template) ? path :
+          ForgetPasswords::Template.new(self, key, @path + path)
       end
 
       def manifest

@@ -3,7 +3,7 @@ require 'iso8601'
 require 'uri'
 require 'dry-schema'
 
-module LazyAuth
+module ForgetPasswords
   module Types
     include Dry::Types()
 

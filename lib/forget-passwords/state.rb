@@ -5,25 +5,25 @@ require 'uuidtools'
 require 'uuid-ncname'
 require 'uri'
 
-require 'lazyauth/types'
+require 'forget-passwords/types'
 
-module LazyAuth
+module ForgetPasswords
   class State
 
     TEN_MINUTES = ISO8601::Duration.new('PT10M').freeze
     TWO_WEEKS   = ISO8601::Duration.new('P2W').freeze
 
-    Expiry = LazyAuth::Types::SymbolHash.schema(
-      query:  LazyAuth::Types::Duration.default(TEN_MINUTES),
-      cookie: LazyAuth::Types::Duration.default(TWO_WEEKS)).hash_default
+    Expiry = ForgetPasswords::Types::SymbolHash.schema(
+      query:  ForgetPasswords::Types::Duration.default(TEN_MINUTES),
+      cookie: ForgetPasswords::Types::Duration.default(TWO_WEEKS)).hash_default
 
-    RawParams = LazyAuth::Types::SymbolHash.schema(
-      dsn:       LazyAuth::Types::String,
-      user?:     LazyAuth::Types::String,
-      password?: LazyAuth::Types::String,
+    RawParams = ForgetPasswords::Types::SymbolHash.schema(
+      dsn:       ForgetPasswords::Types::String,
+      user?:     ForgetPasswords::Types::String,
+      password?: ForgetPasswords::Types::String,
       expiry:    Expiry).hash_default
 
-    Type = LazyAuth::Types.Constructor(self) do |x|
+    Type = ForgetPasswords::Types.Constructor(self) do |x|
       # this will w
       if x.is_a? self
         x
@@ -317,7 +317,7 @@ module LazyAuth
       @db = Sequel.connect dsn
 
       # XXX more reliable way to get this info?
-      if @db.is_a? Sequel::Postgres::Database
+      if /postgres/i.match? @db.class.name
         # anyway whatever
         @db.extension :constant_sql_override
         @db.set_constant_sql S::CURRENT_TIMESTAMP,
@@ -510,7 +510,7 @@ module LazyAuth
     # @param ip [String] the IP address that used
     # @param seen [Time,DateTime] The timestamp (defaults to now).
     #
-    # @return [LazyAuth::State::Usage] the token's usage record
+    # @return [ForgetPasswords::State::Usage] the token's usage record
     #
     def stamp_token token, ip, seen: DateTime.now
       uuid  = UUID::NCName::from_ncname token, version: 1

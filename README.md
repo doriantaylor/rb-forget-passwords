@@ -1,6 +1,6 @@
-# LazyAuth: Web Authentication, But Lazy
+# ForgetPasswords: Web Authentication, But Lazy
 
-LazyAuth is a stand-alone Web authentication module that replicates
+ForgetPasswords is a stand-alone Web authentication module that replicates
 the "forgot-my-password" user flow, which will, on request, e-mail a
 special link to an address on a predefined list, in lieu of
 password-based authentication. This module makes use of [a
@@ -69,7 +69,7 @@ requests then match the cookie to the user's e-mail address, and use
 that to populate the `REMOTE_USER` field, which can then be picked up
 by any downstream authorization handler or Web application.
 
-Users of this system must be pre-authorized. The `lazyauth-cli`
+Users of this system must be pre-authorized. The `forgetpw`
 command-line tool that ships with this package has a verb for doing
 this. Since the primary use case for this module is client extranets,
 and it is customary that everybody at Widgets, Inc., will have a
@@ -95,31 +95,31 @@ module to operate.
 
 ## Usage
 
-To start using LazyAuth, we'll assume you have done the necessary
+To start using ForgetPasswords, we'll assume you have done the necessary
 setup on the server (below), as well as all the necessary setup for an
 address to send e-mail from. After that, we'll need a database (this
 example uses PostgreSQL; you can of course skip this step for SQLite):
 
-    $ createdb lazyauth
+    $ createdb forgetpw
 
 Now we initialize the configuration file and create the tables:
 
-    $ lazyauth-cli -c ~/.lazyauth.yml init -d postgres:///lazyauth \
+    $ forgetpw -c ~/.forgetpw.yml init -d postgres:///forgetpw \
     -f noreply@my.company
 
 > Note: the `init` command uses the `-c` flag as the location to
 > _write_ a _new_ configuration file, while all other commands use the
 > flag as the source to _read_ from an existing one. The program
-> otherwise looks for `lazyauth.yml` in the current directory.
+> otherwise looks for `forgetpw.yml` in the current directory.
 
 Now we privilege some e-mail addresses:
 
-    $ lazyauth-cli -c ~/.lazyauth.yml privilege \
+    $ forgetpw -c ~/.forgetpw.yml privilege \
     -d widgets-inc.extranet.my.company widgets.biz some@other.person
 
 Now, assuming we have configured the server, we start the daemon:
 
-    $ lazyauth-cli -c ~/.lazyauth.yml fcgi
+    $ forgetpw -c ~/.forgetpw.yml fcgi
     Running authenticator daemon on fcgi://localhost:10101/
 
 > You can use `-z` to detach the process. Listener IP and port are of
@@ -134,11 +134,11 @@ principle it is usable in other systems. What follows is the
 configuration for Apache 2.4.x or newer.
 
 First, we need to declare the authenticator (here it can be called
-anything but we are appropriately calling it `LazyAuth`) and where
+anything but we are appropriately calling it `ForgetPasswords`) and where
 it's listening:
 
 ```apache
-AuthnzFcgiDefineProvider authn LazyAuth fcgi://localhost:10101/
+AuthnzFcgiDefineProvider authn ForgetPasswords fcgi://localhost:10101/
 ```
 
 > On Debian systems and their derivatives, this is in a separate file,
@@ -155,12 +155,12 @@ throwaway user like `nobody`, and then subsequently deny that user. (I
 would consider this a design flaw in `mod_authnz_fcgi`.) The
 expression `%{reqenv:FCGI_USER}` (where the slug `FCGI_USER` is
 configurable on our side) is how the identity gets transmitted
-upstream from LazyAuth to the server.
+upstream from ForgetPasswords to the server.
 
 ```apache
 <Location /protected>
   # unfortunately mod_authnz_fcgi won't let you have a blank default user
-  AuthnzFcgiCheckAuthnProvider LazyAuth Authoritative On RequireBasicAuth Off UserExpr "%{reqenv:FCGI_USER}" DefaultUser nobody
+  AuthnzFcgiCheckAuthnProvider ForgetPasswords Authoritative On RequireBasicAuth Off UserExpr "%{reqenv:FCGI_USER}" DefaultUser nobody
   <RequireAll>
     Require valid-user
     # that's fine, we just outlaw 'nobody'
@@ -174,7 +174,7 @@ Another idiosyncrasy of `mod_authnz_fcgi` is that while it uses the
 to the client necessarily has to come from the downstram content
 handler. As such, any other information from a _successful_
 authentication response needs to be smuggled out through environment
-variables. Since LazyAuth performs a redirect to remove the
+variables. Since ForgetPasswords performs a redirect to remove the
 authentication token from the URL upon successful authentication, the
 following `mod_rewrite` configuration needs to be in place to turn the
 environment variable back into an actual redirect:
@@ -224,14 +224,14 @@ ProxyPass /logout     fcgi://localhost:10101/logout
 > crash with a protocol error. While the handling is less than
 > delicate, this is actually a reasonable expectation, as request
 > bodies are only read once off the wire and will thus be already
-> consumed (whether or not they contain the fields to which LazyAuth
+> consumed (whether or not they contain the fields to which ForgetPasswords
 > is sensitive) when the content handler is invoked. (The way Apache
 > handles the request body, it _can_ be duplicated and reinserted into
 > the input stream, but that is a whole project unto itself.
 
 ## Templates
 
-LazyAuth has a number of UI states that are embedded in the gem. These
+ForgetPasswords has a number of UI states that are embedded in the gem. These
 take the form of template files. The functionality of these templates
 is currently at the absolute bare minimum required to do the job. The
 templates are XHTML, with a basic placeholder substitution
@@ -263,13 +263,13 @@ outgoing templates with the location of an XSLT stylesheet, enabling
 arbitrary manipulations (and also the main reason why these templates
 are XHTML and not regular HTML).
 
-> **NOTE 2022-04-22** this `lazyauth-cli extract` business is still
+> **NOTE 2022-04-22** this `forgetpw extract` business is still
 > under construction.
 
 The default templates for all states are embedded in the gem
 distribution, and can be overridden individually or en masse in the
 configuration file by specifying the location of a supplanting file.
-The command-line verb `lazyauth-cli extract $DESTINATION` will extract
+The command-line verb `forgetpw extract $DESTINATION` will extract
 the full set of templates from the gem, and deposit copies of them
 wherever you tell it to.
 
@@ -278,7 +278,7 @@ locations, there are a couple resources, namely two logout states
 (`/logged-out` for current device; `/logged-out-all` for all devices),
 which can be completely static. Boilerplate for these states is
 included in the distribution and can be retrieved by running
-`lazyauth-cli extract --static`. The URLs of these resources can
+`forgetpw extract --static`. The URLs of these resources can
 naturally be overridden in the configuration file.
 
 > Out of an abundance of prudence I should also remark that to
@@ -303,7 +303,7 @@ form field by the name of `forward` that contains the current URL.
 
 This resource should actually never be seen, as it currently only
 arises when outside content-handling traffic is directed to locations
-other than the two specified by LazyAuth.
+other than the two specified by ForgetPasswords.
 
 ### `knock_bad` (currently handled by `basic-409.xhtml`)
 
@@ -378,7 +378,7 @@ script can't connectd to the specified SMTP server.
 
 ### `email_sent` (currently handled by `email-sent.xhtml`)
 
-This is the confirmation page people see when LazyAuth has accepted
+This is the confirmation page people see when ForgetPasswords has accepted
 their e-mmail address and sent the link-containing e-mail.
 
 ### `post_only` (currently handled by `post-405.xhtml`)
@@ -423,7 +423,7 @@ forms.
 
 * `query` is the key for the URL query string component that contains
   the nonce token; it defaults to `knock`.
-* `cookie` is the key for the cookie, which defaults to `lazyauth`.
+* `cookie` is the key for the cookie, which defaults to `forgetpw`.
 * `email` is the form key where the user's e-mail address is expected,
   defaulting to `email`.
 * `logout` is the form key which would be set to something true-ish
@@ -450,13 +450,13 @@ specific functions within the system, and have a stable location.
 
 * `login` is the target that accepts the `POST` request from the `401`
   page and others, that sends the e-mail and issues a confirmation. It
-  defaults to `/email-link`. This resource is powered by LazyAuth and
+  defaults to `/email-link`. This resource is powered by ForgetPasswords and
   is used internally to configure the location of that resource.
 * `logout` is the target that accepts the `POST` request to log
   out. It (rather predictably) defaults to `/logout`. This location is
-  also handled by LazyAuth.
+  also handled by ForgetPasswords.
 * `logout_one` is a _static_ (or other arbitrary) target (i.e., _not_
-  handled by LazyAuth) that confirms the user has logged out their
+  handled by ForgetPasswords) that confirms the user has logged out their
   current session. It defaults to `/logged-out`.
 * `logout_all` is another static target that confirms the user has
   logged out of all devices.
@@ -534,7 +534,7 @@ of 2022-04-22), the focus can shift to keeping it that way.
 ### How about expanding out the templates?
 
 Localizing the templates is definitely a possibility, as well as
-making domain-specific overrides so a single LazyAuth daemon could
+making domain-specific overrides so a single ForgetPasswords daemon could
 handle multiple domains with tailor-fit responses for each. I am less
 sanguine about going hog-wild with the templates but I could see some
 kind of future plug-in interface so people could use their favourite
@@ -542,13 +542,13 @@ flavour of templating engine.
 
 ### Reconcile with OAuth
 
-The authentication cookie used by LazyAuth bears a striking
+The authentication cookie used by ForgetPasswords bears a striking
 resemblance to an [OAuth](https://oauth.net/) bearer token, such that
 could actually _be_ (at least a proxy for) an OAuth bearer token.
 Indeed, bearer tokens would make for an _excellent_ cleavage plane for
 _segmented_ authentication: Method X to bearer token, then bearer
 token to `REMOTE_USER`. This means we could have multiple
-authentication mechanisms (LazyAuth, OAuth, X.509, Kerberos, boring
+authentication mechanisms (ForgetPasswords, OAuth, X.509, Kerberos, boring
 old password, whatever) operating in the same space at once.
 
 ### The really interesting thing is `mod_authnz_fcgi`
@@ -566,7 +566,7 @@ the content handler, that can be addressed directly—provided you write
 your module in C. What `mod_authnz_fcgi` does is tap the
 _authentication_ phase of Apache's request-handling loop and open it
 up to cheap scripts written in any language that speak FastCGI. This
-means that stand-alone modules like LazyAuth can be used in
+means that stand-alone modules like ForgetPasswords can be used in
 conjunction with *any* downstream Web application framework or
 development strategy. Some additional observations:
 
@@ -586,14 +586,14 @@ development to the next level.
 
 You know how to do this:
 
-    $ gem install lazyauth
+    $ gem install forget-passwords
 
-Or, [download it off rubygems.org](https://rubygems.org/gems/lazyauth).
+Or, [download it off rubygems.org](https://rubygems.org/gems/forget-passwords).
 
 ## Contributing
 
 Bug reports and pull requests are welcome at
-[the GitHub repository](https://github.com/doriantaylor/rb-lazyauth).
+[the GitHub repository](https://github.com/doriantaylor/rb-forget-passwords).
 
 ## Copyright & License
 

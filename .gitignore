@@ -15,11 +15,11 @@
 .rspec_status
 
 # state files
-lazyauth.yml
-lazyauth-private.yml
-lazyauth-prod.yml
-lazyauth.db
-lazyauth.sqlite
+forgetpw.yml
+forgetpw-private.yml
+forgetpw-prod.yml
+forgetpw.db
+forgetpw.sqlite
 
 # uh gems?
 *.gem

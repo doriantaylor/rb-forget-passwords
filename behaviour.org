@@ -1,7 +1,7 @@
 #+STARTUP: showall hidestars
 * behaviours
-** lazyauth authenticator
-   - [ ] if the request has a cookie with the specified key (eg ~lazyauth~)
+** forgetpw authenticator
+   - [ ] if the request has a cookie with the specified key (eg ~forgetpw~)
      - [ ] if it matches a valid (ie matching, non-expired) entry in the database
        - [ ] set REMOTE_USER to whatever the user is
          - [ ] email address ?
@@ -56,7 +56,7 @@
 * components
 ** template processor
    - [ ] ideally this should be pluggable
-   - [ ] defaults packaged with and sourced from lazyauth package
+   - [ ] defaults packaged with and sourced from forgetpw package
      - [ ] defaults can be overridden in command-line config
      - [ ] command to disgorge copies of defaults into a directory
        - (so they can be edited)

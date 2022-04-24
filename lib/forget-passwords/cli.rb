@@ -6,9 +6,9 @@ require 'uri'
 require 'dry-schema'
 require 'deep_merge'
 
-require 'lazyauth'
+require 'forget-passwords'
 
-module LazyAuth
+module ForgetPasswords
 
   class CLI
     include Commander::Methods
@@ -17,18 +17,18 @@ module LazyAuth
 
     ONE_YEAR = ISO8601::Duration.new('P1Y').freeze
 
-    CFG_FILE = Pathname('lazyauth.yml').freeze
+    CFG_FILE = Pathname('forgetpw.yml').freeze
 
     DEFAULTS = {
       host:   'localhost',
       port:   10101,
-      state:  { dsn: 'sqlite://lazyauth.sqlite' },
+      state:  { dsn: 'sqlite://forgetpw.sqlite' },
     }.freeze
 
-    Config = LazyAuth::App::Config.schema(
-      host: LazyAuth::Types::Hostname.default('localhost'.freeze),
+    Config = ForgetPasswords::App::Config.schema(
+      host: ForgetPasswords::Types::Hostname.default('localhost'.freeze),
       port: Dry::Types['integer'].default(10101),
-      pid?: LazyAuth::Types::ExtantPathname).hash_default
+      pid?: ForgetPasswords::Types::ExtantPathname).hash_default
 
     def normalize_hash h, strings: false, flatten: false, dup: false,
         freeze: false
@@ -154,8 +154,8 @@ module LazyAuth
 
     def run
       program :name,        File.basename($0)
-      program :version,     LazyAuth::VERSION
-      program :description, 'Command line manager for LazyAuth'
+      program :version,     ForgetPasswords::VERSION
+      program :description, 'Command line manager for ForgetPasswords'
       program :int_message, 'mkay bye'
 
       @cfgfile = CFG_FILE.expand_path
@@ -185,8 +185,8 @@ module LazyAuth
         c.syntax  = "#{program :name} init [OPTIONS]"
         c.summary = 'Initializes configuration file and state database.'
         c.description = <<-DESC
-This command initializes the configuration file (default `$PWD/lazyauth.yml`)
-and state database (default `sqlite://lazyauth.sqlite`). Global parameters
+This command initializes the configuration file (default `$PWD/forgetpw.yml`)
+and state database (default `sqlite://forgetpw.sqlite`). Global parameters
 (-b, -c, -d) will be used to record the default base URL, config file
 location, and data source name, respectively.
 
@@ -203,7 +203,7 @@ command.
         DESC
 
         c.option '--query-key TOKEN', 'A URI query key; defaults to `knock`'
-        c.option '--cookie-key TOKEN', 'A cookie key; defaults to `lazyauth`'
+        c.option '--cookie-key TOKEN', 'A cookie key; defaults to `forgetpw`'
         c.option '--expiry DURATION',
           'Global default expiry, given as an ISO8601 duration (default P1Y)'
         c.option '--url-expiry DURATION',
@@ -456,9 +456,9 @@ not meant to be authoritative storage for user profiles.
 
       command :fcgi do |c|
         c.syntax = "#{program :name} fcgi [OPTIONS]"
-        c.summary = 'Runs the LazyAuth FastCGI authenticator.'
+        c.summary = 'Runs the ForgetPasswords FastCGI authenticator.'
         c.description = <<-DESC
-This command fires up the LazyAuth FastCGI authenticator service. By
+This command fires up the ForgetPasswords FastCGI authenticator service. By
 default it runs in the foreground, listening on localhost, TCP port
 10101. All of these parameters of course can be changed, either in
 configuration or on the command line. Of course this daemon is only
@@ -472,11 +472,11 @@ something like `mod_authnz_fcgi`.
         c.option '-P', '--pid FILE', 'Create a PID file when detached'
 
         c.action do |args, opts|
-          require 'lazyauth'
+          require 'forget-passwords'
           require 'rack'
 
           # booooo
-          require 'lazyauth/fastcgi'
+          require 'forget-passwords/fastcgi'
 
           read_config
           merge_config @config,
@@ -491,8 +491,8 @@ something like `mod_authnz_fcgi`.
             "fcgi://#{@config[:host]}:#{@config[:port]}/"
 
           Rack::Server.start({
-            # app: LazyAuth::App.new(@config[:dsn], debug: @log_sql),
-            app: LazyAuth::App.new(@config[:state], **appcfg),
+            # app: ForgetPasswords::App.new(@config[:dsn], debug: @log_sql),
+            app: ForgetPasswords::App.new(@config[:state], **appcfg),
             server: 'hacked-fcgi',
             environment: 'none',
             daemonize: opts.detach,
