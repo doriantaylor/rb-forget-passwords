@@ -384,7 +384,8 @@ module ForgetPasswords
       resp.set_header "Variable-#{@vars[:redirect]}", target.to_s if
         target != uri # (note this should always be true)
       resp.set_cookie @keys[:cookie], {
-        value: token, secure: req.ssl?, httponly: true, domain: uri.host,
+        value: token, secure: req.ssl?, httponly: true,
+        domain: uri.host, path: ?/, same_site: :strict,
         expires: time_delta(@state.expiry[:cookie]),
       }
 
@@ -402,7 +403,9 @@ module ForgetPasswords
 
       resp = Rack::Response.new
 
-      vars = { LOGIN: @targets[:login], FORWARD: req_uri(req).to_s }
+      uri = req_uri req
+
+      vars = { LOGIN: @targets[:login], FORWARD: uri.to_s }
 
       # check if token is well-formed
       raise_error(409, :cookie_bad, req, vars: vars) unless token_ok? token
@@ -416,7 +419,7 @@ module ForgetPasswords
         user = @state.user_for(token, record: true, cookie: true)
 
       raise_error(403, :email_not_listed, req, vars: vars) unless
-        @state.acl.listed? req_uri(req), user.email
+        @state.acl.listed? uri, user.email
 
       now = Time.now
       @state.freshen_token token, from: now
@@ -427,6 +430,7 @@ module ForgetPasswords
       # update the cookie expiration
       resp.set_cookie @keys[:cookie], {
         value: token, secure: req.ssl?, httponly: true,
+        domain: uri.host, path: ?/,
         expires: time_delta(@state.expiry[:cookie], now),
       }
 

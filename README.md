@@ -95,10 +95,11 @@ module to operate.
 
 ## Usage
 
-To start using ForgetPasswords, we'll assume you have done the necessary
-setup on the server (below), as well as all the necessary setup for an
-address to send e-mail from. After that, we'll need a database (this
-example uses PostgreSQL; you can of course skip this step for SQLite):
+To start using Forget Passwords, we'll assume you have done the
+necessary setup on the server (below), as well as all the necessary
+setup for an address to send e-mail from. After that, we'll need a
+database (this example uses PostgreSQL; you can of course skip this
+step for SQLite):
 
     $ createdb forgetpw
 
@@ -134,8 +135,8 @@ principle it is usable in other systems. What follows is the
 configuration for Apache 2.4.x or newer.
 
 First, we need to declare the authenticator (here it can be called
-anything but we are appropriately calling it `ForgetPasswords`) and where
-it's listening:
+anything but we are appropriately calling it `ForgetPasswords`) and
+where it's listening:
 
 ```apache
 AuthnzFcgiDefineProvider authn ForgetPasswords fcgi://localhost:10101/
@@ -155,7 +156,7 @@ throwaway user like `nobody`, and then subsequently deny that user. (I
 would consider this a design flaw in `mod_authnz_fcgi`.) The
 expression `%{reqenv:FCGI_USER}` (where the slug `FCGI_USER` is
 configurable on our side) is how the identity gets transmitted
-upstream from ForgetPasswords to the server.
+upstream from Forget Passwords to the server.
 
 ```apache
 <Location /protected>
@@ -174,7 +175,7 @@ Another idiosyncrasy of `mod_authnz_fcgi` is that while it uses the
 to the client necessarily has to come from the downstram content
 handler. As such, any other information from a _successful_
 authentication response needs to be smuggled out through environment
-variables. Since ForgetPasswords performs a redirect to remove the
+variables. Since Forget Passwords performs a redirect to remove the
 authentication token from the URL upon successful authentication, the
 following `mod_rewrite` configuration needs to be in place to turn the
 environment variable back into an actual redirect:
@@ -224,17 +225,42 @@ ProxyPass /logout     fcgi://localhost:10101/logout
 > crash with a protocol error. While the handling is less than
 > delicate, this is actually a reasonable expectation, as request
 > bodies are only read once off the wire and will thus be already
-> consumed (whether or not they contain the fields to which ForgetPasswords
-> is sensitive) when the content handler is invoked. (The way Apache
-> handles the request body, it _can_ be duplicated and reinserted into
-> the input stream, but that is a whole project unto itself.
+> consumed (whether or not they contain the fields to which Forget
+> Passwords is sensitive) when the content handler is invoked. (The
+> way Apache handles the request body, it _can_ be duplicated and
+> reinserted into the input stream, but that is a whole project unto
+> itself.
+
+### Caveats
+
+I have noticed that a `RewriteRule` (in a `.htaccess`) with the
+passthrough (`PT`) flag will short-circuit the redirect that happens
+when a user follows the link off an e-mail. Same ostensibly goes for
+overriding `DirectoryIndex` in a `.htaccess`. The observable effect is
+that the server returns 401 (and doesn't redirect/remove the query
+string) even though the cookie is set and the knock token is consumed.
+If you refresh the page, then it will say (correctly, from its point
+of view) that the link is expired. If you manually chop off the query
+string, it will correctly display the logged-in state.
+
+> One thing I didn't check is if it still returned a `Location:`
+> header, which the browser will ignore if the response code is
+> anything other than most (but not all) of the 300s and 201.
+
+This is likely because these configuration directives are causing
+subrequests and/or internal redirects, which triggers the handler, but
+doesn't convey its response to the client. This might be an inherent
+limitation of using FastCGI in `AUTHORIZER` mode, because there is no
+way to tell it that it is being triggered from a subrequest (unless
+there is?). More research is needed to probe potential interactions
+with other handlers.
 
 ## Templates
 
-ForgetPasswords has a number of UI states that are embedded in the gem. These
-take the form of template files. The functionality of these templates
-is currently at the absolute bare minimum required to do the job. The
-templates are XHTML, with a basic placeholder substitution
+Forget Passwords has a number of UI states that are embedded in the
+gem. These take the form of template files. The functionality of these
+templates is currently at the absolute bare minimum required to do the
+job. The templates are XHTML, with a basic placeholder substitution
 functionality, which can take place either in processing instructions
 (`<?var $WHATEVER?>`), or attribute values (`<elem
 attr="$WHATEVER"/>`).
@@ -303,7 +329,7 @@ form field by the name of `forward` that contains the current URL.
 
 This resource should actually never be seen, as it currently only
 arises when outside content-handling traffic is directed to locations
-other than the two specified by ForgetPasswords.
+other than the two specified by Forget Passwords.
 
 ### `knock_bad` (currently handled by `basic-409.xhtml`)
 
@@ -378,8 +404,8 @@ script can't connectd to the specified SMTP server.
 
 ### `email_sent` (currently handled by `email-sent.xhtml`)
 
-This is the confirmation page people see when ForgetPasswords has accepted
-their e-mmail address and sent the link-containing e-mail.
+This is the confirmation page people see when Forget Passwords has
+accepted their e-mmail address and sent the link-containing e-mail.
 
 ### `post_only` (currently handled by `post-405.xhtml`)
 
@@ -450,14 +476,15 @@ specific functions within the system, and have a stable location.
 
 * `login` is the target that accepts the `POST` request from the `401`
   page and others, that sends the e-mail and issues a confirmation. It
-  defaults to `/email-link`. This resource is powered by ForgetPasswords and
-  is used internally to configure the location of that resource.
+  defaults to `/email-link`. This resource is powered by Forget
+  Passwords and is used internally to configure the location of that
+  resource.
 * `logout` is the target that accepts the `POST` request to log
   out. It (rather predictably) defaults to `/logout`. This location is
-  also handled by ForgetPasswords.
+  also handled by Forget Passwords.
 * `logout_one` is a _static_ (or other arbitrary) target (i.e., _not_
-  handled by ForgetPasswords) that confirms the user has logged out their
-  current session. It defaults to `/logged-out`.
+  handled by Forget Passwords) that confirms the user has logged out
+  their current session. It defaults to `/logged-out`.
 * `logout_all` is another static target that confirms the user has
   logged out of all devices.
 
@@ -534,22 +561,22 @@ of 2022-04-22), the focus can shift to keeping it that way.
 ### How about expanding out the templates?
 
 Localizing the templates is definitely a possibility, as well as
-making domain-specific overrides so a single ForgetPasswords daemon could
-handle multiple domains with tailor-fit responses for each. I am less
-sanguine about going hog-wild with the templates but I could see some
-kind of future plug-in interface so people could use their favourite
-flavour of templating engine.
+making domain-specific overrides so a single Forget Passwords daemon
+could handle multiple domains with tailor-fit responses for each. I am
+less sanguine about going hog-wild with the templates but I could see
+some kind of future plug-in interface so people could use their
+favourite flavour of templating engine.
 
 ### Reconcile with OAuth
 
-The authentication cookie used by ForgetPasswords bears a striking
+The authentication cookie used by Forget Passwords bears a striking
 resemblance to an [OAuth](https://oauth.net/) bearer token, such that
 could actually _be_ (at least a proxy for) an OAuth bearer token.
 Indeed, bearer tokens would make for an _excellent_ cleavage plane for
 _segmented_ authentication: Method X to bearer token, then bearer
 token to `REMOTE_USER`. This means we could have multiple
-authentication mechanisms (ForgetPasswords, OAuth, X.509, Kerberos, boring
-old password, whatever) operating in the same space at once.
+authentication mechanisms (Forget Passwords, OAuth, X.509, Kerberos,
+boring old password, whatever) operating in the same space at once.
 
 ### The really interesting thing is `mod_authnz_fcgi`
 
@@ -566,7 +593,7 @@ the content handler, that can be addressed directly—provided you write
 your module in C. What `mod_authnz_fcgi` does is tap the
 _authentication_ phase of Apache's request-handling loop and open it
 up to cheap scripts written in any language that speak FastCGI. This
-means that stand-alone modules like ForgetPasswords can be used in
+means that stand-alone modules like Forget Passwords can be used in
 conjunction with *any* downstream Web application framework or
 development strategy. Some additional observations:
 
