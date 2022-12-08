@@ -11,6 +11,7 @@ require 'rack'
 require 'rack/request'
 require 'rack/response'
 
+require 'base64'
 require 'mail'
 
 module ForgetPasswords
@@ -398,12 +399,10 @@ module ForgetPasswords
       resp
     end
 
-    def handle_cookie req, token = nil
-      token ||= req.cookies[@keys[:cookie]]
-
+    def handle_token req, token, now = Time.now
       resp = Rack::Response.new
 
-      uri = req_uri req
+      uri  = req_uri req
 
       vars = { LOGIN: @targets[:login], FORWARD: uri.to_s }
 
@@ -421,24 +420,33 @@ module ForgetPasswords
       raise_error(403, :email_not_listed, req, vars: vars) unless
         @state.acl.listed? uri, user.email
 
-      now = Time.now
       @state.freshen_token token, from: now
 
       # stamp the token
       @state.stamp_token token, req.ip, seen: now
-
-      # update the cookie expiration
-      resp.set_cookie @keys[:cookie], {
-        value: token, secure: req.ssl?, httponly: true,
-        domain: uri.host, path: ?/,
-        expires: time_delta(@state.expiry[:cookie], now),
-      }
 
       # just set the variable
       resp.set_header "Variable-#{@vars[:user]}", user.principal.to_s
 
       # content-length has to be present but empty or it will crap out
       resp.set_header 'Content-Length', ''
+
+      resp
+    end
+
+    def handle_cookie req, token = nil
+      token ||= req.cookies[@keys[:cookie]]
+
+      now  = Time.now
+      resp = handle_token req, token, now
+      uri  = req_uri req
+
+      # update the cookie expiration
+      resp.set_cookie @keys[:cookie], {
+        value: token, secure: req.ssl?, httponly: true,
+        domain: uri.host, path: ?/, same_site: :strict,
+        expires: time_delta(@state.expiry[:cookie], now),
+      }
 
       resp
     end
@@ -523,23 +531,24 @@ module ForgetPasswords
       resp
     end
 
-    # def handle_post req
-    #   return Rack::Response[403, { 'Content-Type' => 'text/plain' }, 'wat lol']
-
-    #   if logout = req.POST[@keys[:logout]]
-    #     handle_logout req, logout
-    #   elsif email = req.POST[@keys[:email]]
-    #     handle_login req, email
-    #   elsif token = req.cookies[@keys[:cookie]]
-    #     # next check for a cookie
-    #     handle_cookie req, token
-    #   else
-    #     default_401 req
-    #   end
-    # end
-
     def handle_auth req
-      if knock = req.GET[@keys[:query]]
+      auth = req.get_header('Authorization') || req.env['HTTP_AUTHORIZATION']
+      if auth and !auth.strip.empty?
+        mech, *auth = auth.strip.split
+        token = case mech.downcase
+                when 'basic'
+                  # can't trust/use rack here
+                  Base64.decode64(auth.first || '').split(?:, 2).last
+                when 'bearer'
+                  auth.first
+                end
+
+        if token
+          handle_token req, token
+        else
+          default_401 req
+        end
+      elsif knock = req.GET[@keys[:query]]
         # check for a knock first; this overrides everything
         handle_knock req, knock
       # elsif req.post?

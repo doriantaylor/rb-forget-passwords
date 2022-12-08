@@ -524,6 +524,15 @@ email:
   # additional SMTP configuration would go here, if applicable.
 ```
 
+## Alternate Authentication Methods
+
+It is possible to take the token in the cookie and feed it in as
+either a `Basic` authentication password or `Bearer` token. In the
+case of `Basic`, the username is ignored. This enables `curl` or API
+access, or other automated things like feed readers. There is
+currently no UI for this, but an "app password" management screen is
+potentially on the horizon.
+
 ## Future Directions
 
 This project began on something of a lark, with the intent to make a
