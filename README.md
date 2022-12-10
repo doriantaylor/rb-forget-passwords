@@ -578,9 +578,11 @@ favourite flavour of templating engine.
 
 ### Reconcile with OAuth
 
-The authentication cookie used by Forget Passwords bears a striking
-resemblance to an [OAuth](https://oauth.net/) bearer token, such that
-could actually _be_ (at least a proxy for) an OAuth bearer token.
+Let's face it: this thing is 98% of what [OAuth](https://oauth.net/)
+does: it trades one token for another over a more-or-less secure side
+channel. It could be made a heck of a lot simpler by just…wrapping
+OAuth.
+
 Indeed, bearer tokens would make for an _excellent_ cleavage plane for
 _segmented_ authentication: Method X to bearer token, then bearer
 token to `REMOTE_USER`. This means we could have multiple

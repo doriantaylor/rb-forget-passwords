@@ -386,7 +386,7 @@ module ForgetPasswords
         target != uri # (note this should always be true)
       resp.set_cookie @keys[:cookie], {
         value: token, secure: req.ssl?, httponly: true,
-        domain: uri.host, path: ?/, same_site: :strict,
+        domain: uri.host, path: ?/, same_site: :lax, # strict is too strict
         expires: time_delta(@state.expiry[:cookie]),
       }
 
@@ -444,7 +444,7 @@ module ForgetPasswords
       # update the cookie expiration
       resp.set_cookie @keys[:cookie], {
         value: token, secure: req.ssl?, httponly: true,
-        domain: uri.host, path: ?/, same_site: :strict,
+        domain: uri.host, path: ?/, same_site: :lax, # strict is too strict
         expires: time_delta(@state.expiry[:cookie], now),
       }
 
@@ -534,6 +534,7 @@ module ForgetPasswords
     def handle_auth req
       auth = req.get_header('Authorization') || req.env['HTTP_AUTHORIZATION']
       if auth and !auth.strip.empty?
+        # warn "has authorization header #{auth}"
         mech, *auth = auth.strip.split
         token = case mech.downcase
                 when 'basic'
@@ -549,13 +550,15 @@ module ForgetPasswords
           default_401 req
         end
       elsif knock = req.GET[@keys[:query]]
-        # check for a knock first; this overrides everything
+        # check for a knock; this overrides an existing cookie
+        # warn "has knock token #{knock}"
         handle_knock req, knock
       # elsif req.post?
       #  # next check for a login/logout attempt
       #  handle_post req
       elsif token = req.cookies[@keys[:cookie]]
         # next check for a cookie
+        # warn "has cookie #{token}"
         handle_cookie req, token
       else
         default_401 req
