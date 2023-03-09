@@ -4,6 +4,7 @@ require 'xml-mixup'
 require 'http-negotiate'
 require 'forget-passwords/types'
 require 'uri'
+require 'time'
 
 module ForgetPasswords
 
@@ -18,6 +19,8 @@ module ForgetPasswords
       DEFAULT_PATH = (
         Pathname(__FILE__).parent + '../../content').expand_path.freeze
 
+      # this is a default document root subpath
+      DEFAULT_DOCROOT = '.forgetpw'.freeze
 
       # Normalize the input to symbol `:like_this`.
       #
@@ -57,21 +60,67 @@ module ForgetPasswords
         @path      = Pathname(path).expand_path
         @base      = base
         @transform = transform
-        @mapping   = mapping.map do |k, v|
-          name = normalize k
-          template = v.is_a?(ForgetPasswords::Template) ? v :
-            ForgetPasswords::Template.new(self, k, @path + v)
-          [name, template]
-        end.to_h
+        @mapping   = mapping
+        @templates = {
+          @path => mapping.map do |k, v|
+            name = normalize k
+            template = v.is_a?(ForgetPasswords::Template) ? v :
+              ForgetPasswords::Template.new(self, k, @path + v)
+            [name, template]
+          end.to_h
+        }
       end
 
-      def [] key
-        @mapping[normalize key]
+      # Fetch the appropriate template, optionally relative to a given root.
+      #
+      # @param key [Symbol, #to_sym] the template key.
+      # @param root [nil, String] an optional document root.
+      #
+      # @return [nil, ForgetPasswords::Template] a template
+      #
+      def [] key, root = nil
+        key = normalize key
+        # bail early if we don't know the key
+        return unless @mapping[key]
+
+        # obtain optional root
+        root = if root
+                 r = root.respond_to?(:env) ? root.env['DOCUMENT_ROOT'] : root
+                 r = (Pathname(r) + DEFAULT_DOCROOT).expand_path
+                 r.readable? ? r : nil
+               end
+
+        if root
+          # get the full file path
+          fp = root + @mapping[key]
+          if fp.readable?
+            mt       = fp.mtime
+            rootmap  = @templates[root] ||= {}
+            template = rootmap[key]
+
+            # congratulations, you found it
+            return template if template and mt <= template.modified
+
+            # XXX this could explode obvs
+            begin
+              template = ForgetPasswords::Template.new(self, key, fp, mt)
+              rootmap[key] = template
+              return template
+            rescue
+              # XXX duhh what do we do here
+              nil
+            end
+          end
+        end
+
+        # otherwise just return the default
+        @templates[@path][key]
       end
 
       def []= key, path
         name = normalize key
-        @mapping[name] = path.is_a?(ForgetPasswords::Template) ? path :
+        # XXX do something less dumb here
+        @templates[@path][name] = path.is_a?(ForgetPasswords::Template) ? path :
           ForgetPasswords::Template.new(self, key, @path + path)
       end
 
@@ -132,12 +181,13 @@ module ForgetPasswords
 
     public
 
-    attr_reader :name, :doc, :mapper
+    attr_reader :name, :doc, :mapper, :modified
 
-    def initialize mapper, name, content
+    def initialize mapper, name, content, modified = Time.now
       # boring members
-      @mapper = mapper
-      @name   = name
+      @mapper   = mapper
+      @name     = name
+      @modified = modified
 
       # resolve content
       @doc = case content
@@ -253,6 +303,7 @@ module ForgetPasswords
     # @return [Rack::Response] the response object, updated in place
     #
     def populate resp, headers = {}, vars = {}, base: nil
+
       if (body, type = serialize(
         process(vars: vars, base: base), headers, full: true))
         #resp.length = body.bytesize # not sure if necessary

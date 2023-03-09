@@ -311,7 +311,7 @@ module ForgetPasswords
       }
 
       # grab the template since we'll use it
-      template = @templates[:email]
+      template = @templates[:email, req]
 
       # process the templates
       doc = template.process vars: vars
@@ -336,7 +336,7 @@ module ForgetPasswords
       uri = req_uri req
       resp = Rack::Response.new
       resp.status = status
-      @templates[key].populate resp, req, vars, base: uri
+      @templates[key, req].populate resp, req, vars, base: uri
       resp.set_header "Variable-#{@vars[:type]}", resp.content_type
       raise ForgetPasswords::ErrorResponse, resp
     end
@@ -347,7 +347,7 @@ module ForgetPasswords
       uri  = req_uri req
       resp = Rack::Response.new
       resp.status = 401
-      @templates[:default_401].populate resp, req, {
+      @templates[:default_401, req].populate resp, req, {
         FORWARD: req_uri(req).to_s, LOGIN: @targets[:login] }, base: uri
       resp.set_header "Variable-#{@vars[:type]}", resp.content_type
       resp
@@ -495,7 +495,7 @@ module ForgetPasswords
 
       # return 200 now because this is now a content handler
       resp.status = 200
-      @templates[:email_sent].populate resp, req, {
+      @templates[:email_sent, req].populate resp, req, {
         FORWARD: forward.to_s, FROM: @email[:from].to_s, EMAIL: address.to_s },
         base: uri
     end
