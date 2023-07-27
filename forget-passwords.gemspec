@@ -56,7 +56,7 @@ DESC
   spec.add_runtime_dependency 'fcgi',       '>= 0.9.2.1'
   spec.add_runtime_dependency 'iso8601',    '>= 0.12'
   spec.add_runtime_dependency 'mail',       '>= 2.7.1'
-  spec.add_runtime_dependency 'rack',       '>= 2.0'
+  spec.add_runtime_dependency 'rack',       '~> 2' # rack 3 breaks stuff
   spec.add_runtime_dependency 'sequel',     '>= 5.20'
   spec.add_runtime_dependency 'uuidtools',  '>= 2.1'
 

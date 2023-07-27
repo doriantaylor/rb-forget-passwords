@@ -603,8 +603,11 @@ module ForgetPasswords
 
       # then assign members
       config.each { |key, value| instance_variable_set "@#{key.to_s}", value }
+      # XXX FIX COERCION
+      config[:email][:options][:tls] = true if
+        config.dig :email, :options, :tls
 
-      # warn @email.inspect
+      #  @email.inspect
 
       # create a dispatch table for content requests
       # XXX this will have to be expanded for multiple hosts

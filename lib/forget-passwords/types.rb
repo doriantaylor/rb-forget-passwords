@@ -101,7 +101,7 @@ module Dry::Types::Builder
     reqd = keys.select(&:required?)
 
     if reqd.empty?
-      # there aren't any requireed keys, but we'll set the empty hash
+      # there aren't any required keys, but we'll set the empty hash
       # as a default if there exist optional keys, otherwise any
       # default will interfere with input from upstream.
       return default({}.freeze) unless keys.empty?
