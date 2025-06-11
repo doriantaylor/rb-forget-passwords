@@ -395,7 +395,7 @@ module ForgetPasswords
       # remove existing cookie
       if (token = req.cookies[@keys[:cookie]])
         @state.token.expire token
-        resp.delete_cookie @keys[:cookie] #, { value: token }
+        resp.delete_cookie @keys[:cookie], { domain: uri.host, value: '' }
       end
 
       # we never use the knock token again so we can overwrite it with
@@ -531,6 +531,8 @@ module ForgetPasswords
       all = req.GET[@keys[:logout]] if all.nil?
       all = /^\s*(1|true|on|yes)\s*$/i.match? all.to_s
 
+      uri = req_uri req
+
       resp = Rack::Response.new
 
       # this does the actual "logging out"
@@ -543,7 +545,7 @@ module ForgetPasswords
           @state.token.expire token
         end
         # clear the cookie
-        resp.delete_cookie @keys[:cookie] #, { value: token }
+        resp.delete_cookie @keys[:cookie], { domain: uri.host, value: '' }
       end
 
       # otherwise this thing will pretend like you're logging out even
@@ -553,7 +555,7 @@ module ForgetPasswords
       resp.status   = 303
       resp.write 'Redirecting...'
       resp.location = (req_uri(req) +
-        @targets[all ? :logout_one : :logout_all]).to_s
+        @targets[all ? :logout_all : :logout_one]).to_s
 
       resp
     end
