@@ -483,8 +483,9 @@ something like `mod_authnz_fcgi`.
             cmdline_config(opts, { listen: :host, port: :port }), commit: true
           @config = Config.(@config)
 
+          # XXX why the hell did i do it this way?
           appcfg = @config.slice(
-            :keys, :vars, :targets, :templates, :email
+            :keys, :vars, :targets, :templates, :email, :jwt
           ).merge({ debug: @log_sql })
 
           say 'Running authenticator daemon on ' +

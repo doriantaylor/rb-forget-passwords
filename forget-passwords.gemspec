@@ -26,9 +26,9 @@ DESC
 
   # switch based on whether we're a git or hg repository
   wd = File.dirname lib
-  spec.files = if File.exists?("#{wd}/.git")
+  spec.files = if File.exist?("#{wd}/.git")
                  `git ls-files -z`
-               elsif File.exists?("#{wd}/.hg")
+               elsif File.exist?("#{wd}/.hg")
                  `hg files -0`
                else
                  raise "Can't find a git or hg repository!"

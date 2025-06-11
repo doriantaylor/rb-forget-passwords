@@ -108,10 +108,10 @@ module ForgetPasswords
     AT = ForgetPasswords::Types::ASCIIToken
 
     Keys = SH.schema({
-      query:  'knock',
-      cookie: 'forgetpw',
-      email:  'email',
-      logout: 'all',
+      query:   'knock',
+      cookie:  'forgetpw',
+      email:   'email',
+      logout:  'all',
       forward: 'forward',
     }.transform_values { |x| AT.default x.freeze }).hash_default
 
@@ -119,6 +119,7 @@ module ForgetPasswords
       user:     'FCGI_USER',
       redirect: 'FCGI_REDIRECT',
       type:     'FCGI_CONTENT_TYPE',
+      jwt:      'FCGI_JWT',
     }.transform_values { |x| AT.default x.freeze }).hash_default
 
     Targets = SH.schema({
@@ -171,20 +172,30 @@ module ForgetPasswords
     end
 
     EMail = SH.schema(
-      from:   Dry::Types['string'],
-      method: ForgetPasswords::Types::Coercible::Symbol.default(:sendmail),
+      from:      Dry::Types['string'],
+      method:   ForgetPasswords::Types::Coercible::Symbol.default(:sendmail),
       options?: ForgetPasswords::Types::Hash.map(
         ForgetPasswords::Types::NormSym, ForgetPasswords::Types::Atomic)
     ).hash_default
 
+    # JWT stuff
+
+    JWTAlgo = Dry::Types['string'].default('HS256'.freeze).enum(*(
+      %w[HS ES RS PS].product([256, 384, 512]).map(&:join) + %w[ES256K ED25519]))
+    JWTConfig = SH.schema(
+      algorithm?: JWTAlgo,
+      secret:     Dry::Types['string'],
+    ).hash_default
+
     # the composed configuration hash
     Config = SH.schema(
-      state:      ForgetPasswords::State::Type,
-      keys:       Keys,
-      vars:       Vars,
-      targets:    Targets,
-      templates:  Templates,
-      email:      EMail,
+      state:     ForgetPasswords::State::Type,
+      keys:      Keys,
+      vars:      Vars,
+      targets:   Targets,
+      templates: Templates,
+      email:     EMail,
+      jwt?:      JWTConfig,
     ).hash_default
 
     # Return a token suitable for being either a nonce or a cookie.
@@ -301,13 +312,15 @@ module ForgetPasswords
     def send_link req, email, uri
       # set up the variables
       uri ||= req_uri req
-      token = @state.new_token email, oneoff: true
+      # this can't be a oneoff if the recipient is behind barracuda or whatever
+      token = @state.new_token email, oneoff: false
       vars  = {
         URL:        uri.to_s,
         PRETTY_URL: uri.to_s.sub(/^https?:\/\/(.*?)\/*$/i, "\\1"),
         KNOCK_URL:  make_login_link(uri, token),
         DOMAIN:     URI(req.base_url).host,
         EMAIL:      email.to_s,
+        # EXPIRES:
       }
 
       # grab the template since we'll use it
@@ -353,6 +366,15 @@ module ForgetPasswords
       resp
     end
 
+    def maybe_set_jwt resp, user
+      if (@jwt || {})[:secret]
+        jwtok = JWT.encode({ sub: user.to_s }, @jwt[:secret], @jwt[:algorithm])
+        resp.set_header "Variable-#{@vars[:jwt]}", jwtok
+
+        jwtok
+      end
+    end
+
     def handle_knock req, token
       uri    = req_uri req
       target = uri_minus_query uri, @keys[:query]
@@ -362,7 +384,7 @@ module ForgetPasswords
 
       raise_error(401, :knock_expired, req,
         vars: { LOGIN: @targets[:login], FORWARD: target.to_s }) unless
-        @state.token.valid? token
+        @state.token.valid? token, oneoff: false
 
       raise_error(403, :knock_not_found, req) unless
         user = @state.user_for(token)
@@ -373,7 +395,7 @@ module ForgetPasswords
       # remove existing cookie
       if (token = req.cookies[@keys[:cookie]])
         @state.token.expire token
-        resp.delete_cookie @keys[:cookie], { value: token }
+        resp.delete_cookie @keys[:cookie] #, { value: token }
       end
 
       # we never use the knock token again so we can overwrite it with
@@ -384,6 +406,9 @@ module ForgetPasswords
       resp.set_header "Variable-#{@vars[:user]}", user.to_s
       resp.set_header "Variable-#{@vars[:redirect]}", target.to_s if
         target != uri # (note this should always be true)
+
+      maybe_set_jwt resp, user.to_s
+
       resp.set_cookie @keys[:cookie], {
         value: token, secure: req.ssl?, httponly: true,
         domain: uri.host, path: ?/, same_site: :lax, # strict is too strict
@@ -427,6 +452,8 @@ module ForgetPasswords
 
       # just set the variable
       resp.set_header "Variable-#{@vars[:user]}", user.principal.to_s
+
+      maybe_set_jwt resp, user.principal.to_s
 
       # content-length has to be present but empty or it will crap out
       resp.set_header 'Content-Length', ''
@@ -516,7 +543,7 @@ module ForgetPasswords
           @state.token.expire token
         end
         # clear the cookie
-        resp.delete_cookie @keys[:cookie], { value: token }
+        resp.delete_cookie @keys[:cookie] #, { value: token }
       end
 
       # otherwise this thing will pretend like you're logging out even
@@ -531,6 +558,10 @@ module ForgetPasswords
       resp
     end
 
+    # Authenticate the request.
+    #
+    # @return [Rack::Response] a suitable response.
+    #
     def handle_auth req
       auth = req.get_header('Authorization') || req.env['HTTP_AUTHORIZATION']
       if auth and !auth.strip.empty?
@@ -593,19 +624,36 @@ module ForgetPasswords
     public
 
     def initialize state, keys: {}, vars: {}, targets: {},
-        templates: {}, email: {}, debug: false
+        templates: {}, email: {}, jwt: nil, debug: false
 
       @debug = debug
 
       # process config
-      config = Config.({ state: state, keys: keys, vars: vars,
-        targets: targets, templates: templates, email: email }).to_h
+      config = { state: state, keys: keys, vars: vars, targets: targets,
+                templates: templates, email: email }
+      config[:jwt] = jwt if jwt and !jwt.empty?
+      config = Config.(config).to_h
 
       # then assign members
       config.each { |key, value| instance_variable_set "@#{key.to_s}", value }
       # XXX FIX COERCION
       config[:email][:options][:tls] = true if
         config.dig :email, :options, :tls
+
+      if @jwt
+        begin
+          require 'jwt'
+          require 'rbnacl' if %w[ED25519].include? @jwt[:algorithm]
+        rescue LoadError => e
+          if e.path == 'rbnacl'
+            warn "The 'rbnacl' gem is required for ED25519."
+          else
+            warn "You have a JWT configured but no 'jwt' gem installed."
+          end
+
+          raise e
+        end
+      end
 
       #  @email.inspect
 
