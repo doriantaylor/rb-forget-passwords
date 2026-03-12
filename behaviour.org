@@ -75,9 +75,8 @@
   - [ ] command to disgorge copies of defaults into a directory
     - (so they can be edited)
 *** (x?)html
-- [X] variables are processing instructions
-  - ~<?var EMAIL?>~
-- [X] variables in attributes are just sigils like ~$EMAIL~
+- [X] variables are processing instructions (like ~<?var EMAIL?>~)
+- [X] variables in attributes are just sigils (like ~$EMAIL~)
 *** markdown?
 - XXX how do we express variable substitutions?
 ** email preparer

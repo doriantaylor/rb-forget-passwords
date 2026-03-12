@@ -127,6 +127,8 @@ module ForgetPasswords
       logout:     '/logout',
       logout_one: '/logged-out',
       logout_all: '/logged-out-all',
+      enroll:     '/enroll-identity',
+      bypass:     '/generate-token',
     }.transform_values { |x| ST.default x.freeze }).hash_default
 
     # mapping override with specific values
@@ -148,6 +150,7 @@ module ForgetPasswords
       email_not_listed: 'not-on-list.xhtml',
       email_failed:     'basic-500.xhtml',
       email_sent:       'email-sent.xhtml',
+      get_only:         'get-405.xhtml',
       post_only:        'post-405.xhtml',
     }.transform_values { |x| ST.default x.freeze }).hash_default
 
@@ -345,6 +348,15 @@ module ForgetPasswords
       end.deliver
     end
 
+    # Unconditionally Raise a {ForgetPasswords::ErrorResponse}.
+    #
+    # @param status [Integer] the response code
+    # @param key [Symbol] the template key
+    # @param req [Rack::Request] the request
+    # @param vars [Hash] macro variables to pass into the template
+    #
+    # @raise [ForgetPasswords::ErrorResponse] unconditional raise
+    #
     def raise_error status, key, req, vars: {}
       uri = req_uri req
       resp = Rack::Response.new
@@ -356,6 +368,12 @@ module ForgetPasswords
 
     # @!group Actual Handlers
 
+    # Default 401 handler.
+    #
+    # @param req [Rack::Request]
+    #
+    # @return [Rack::Response] the response
+    #
     def default_401 req
       uri  = req_uri req
       resp = Rack::Response.new
@@ -366,6 +384,14 @@ module ForgetPasswords
       resp
     end
 
+    # Smuggle a JWT out in the response in a FastCGI variable if a
+    # secret is configured.
+    #
+    # @param resp [Rack::Response]
+    # @param user [String]
+    #
+    # @return [String] the JWT
+    #
     def maybe_set_jwt resp, user
       if (@jwt || {})[:secret]
         jwtok = JWT.encode({ sub: user.to_s }, @jwt[:secret], @jwt[:algorithm])
@@ -375,6 +401,15 @@ module ForgetPasswords
       end
     end
 
+    # Internal handler for managing the `knock` token.
+    #
+    # @param req [Rack::Request]
+    # @param token [String]
+    #
+    # @raise [ForgetPasswords::ErrorResponse]
+    #
+    # @return [Rack::Response] the response
+    #
     def handle_knock req, token
       uri    = req_uri req
       target = uri_minus_query uri, @keys[:query]
@@ -407,6 +442,7 @@ module ForgetPasswords
       resp.set_header "Variable-#{@vars[:redirect]}", target.to_s if
         target != uri # (note this should always be true)
 
+      # jwt if configured
       maybe_set_jwt resp, user.to_s
 
       resp.set_cookie @keys[:cookie], {
@@ -424,6 +460,16 @@ module ForgetPasswords
       resp
     end
 
+    # Generic internal token handler for cookie or bearer token.
+    #
+    # @param req [Rack::Request]
+    # @param token [String]
+    # @param now [Time]
+    #
+    # @raise [ForgetPasswords::ErrorResponse]
+    #
+    # @return [Rack::Response]
+    #
     def handle_token req, token, now = Time.now
       resp = Rack::Response.new
 
@@ -461,6 +507,15 @@ module ForgetPasswords
       resp
     end
 
+    # Internal token handler for cookie; wraps #handle_token
+    #
+    # @param req [Rack::Request]
+    # @param token [String]
+    #
+    # @raise [ForgetPasswords::ErrorResponse]
+    #
+    # @return [Rack::Response]
+    #
     def handle_cookie req, token = nil
       token ||= req.cookies[@keys[:cookie]]
 
@@ -478,6 +533,63 @@ module ForgetPasswords
       resp
     end
 
+    # Dispatched webhook for enrolling principals.
+    #
+    # @param req [Rack::Request]
+    #
+    # @raise [ForgetPasswords::ErrorResponse]
+    #
+    # @return [Rack::Response]
+    #
+    def handle_enrollment req
+      # 501 if jwt not configured
+
+      # 405 if method not POST
+
+      # 401 if jwt not supplied
+
+      # 409 if no principals supplied or input not recognized
+
+      # 415 if not text/plain or text/csv or application/json
+
+      # 409 if json and not an array of strings
+
+      # do the enrollment
+
+      # return 204
+    end
+
+    # Dispatched endpoint for out-of-band authentication.
+    #
+    # @param req [Rack::Request]
+    #
+    # @raise [ForgetPasswords::ErrorResponse]
+    #
+    # @return [Rack::Response]
+    #
+    def handle_bypass req
+      # 501 if jwt not configured
+
+      # 405 if method not POST
+
+      # 401 if jwt not supplied
+
+      # 409 if no principal supplied or malformed
+
+      # get the cookie
+
+      # return it as text/plain
+    end
+
+    # Dispatched resource for receiving the initial `POST` to kick off
+    # the sign-in process.
+    #
+    # @param req [Rack::Request]
+    #
+    # @raise [ForgetPasswords::ErrorResponse]
+    #
+    # @return [Rack::Response]
+    #
     def handle_login req
       uri  = req_uri req
       resp = Rack::Response.new
@@ -527,6 +639,15 @@ module ForgetPasswords
         base: uri
     end
 
+    # Dispatched resource for clearing the cookie(s) associated with
+    # the principal.
+    #
+    # @param req [Rack::Request]
+    #
+    # @raise [ForgetPasswords::ErrorResponse]
+    #
+    # @return [Rack::Response]
+    #
     def handle_logout req, all = nil
       all = req.GET[@keys[:logout]] if all.nil?
       all = /^\s*(1|true|on|yes)\s*$/i.match? all.to_s
@@ -598,6 +719,8 @@ module ForgetPasswords
       end
     end
 
+    # This is our singular content handler.
+    #
     def handle_content req
       uri = req_uri req
       if proc = @dispatch[uri.path]
@@ -621,6 +744,16 @@ module ForgetPasswords
 
         handle_logout req
       },
+      enroll: -> req {
+        raise_error(405, :post_only, req) unless req.post?
+
+        handle_enrollment req
+      },
+      bypass: -> req {
+        raise_error(405, :get_only, req) unless req.get?
+
+        handle_bypass req
+      }
     }
 
     public
