@@ -204,7 +204,7 @@ module ForgetPasswords
               end
             end
 
-            false
+            nil
           end
 
           def m.permit domain, email, force: false
@@ -352,8 +352,10 @@ module ForgetPasswords
       @db.transaction(&block)
     end
 
-    # XXX 2022-04-10 the email address is canonical now, lol
-
+    # Return the record for a given principal.
+    #
+    # @note XXX 2022-04-10 the email address is canonical now, lol
+    #
     def record_for principal, create: false, email: nil
       # so we can keep the same interface
       if principal
@@ -406,6 +408,13 @@ module ForgetPasswords
       record_for principal, create: true, email: email
     end
 
+    def enroll? domain, principal, email: nil
+      transaction do
+        acl.permit domain, email || principal
+        new_user principal, email: email
+      end
+    end
+
     def new_token principal, cookie: false, oneoff: false, expires: nil
       id = principal.is_a?(Integer) ? principal : id_for(principal)
       raise "No user with ID #{principal} found" unless id
@@ -452,8 +461,6 @@ module ForgetPasswords
       row = @token.fresh(cookie: cookie, oneoff: oneoff).for(id).by_date.first
       return UUID::NCName::to_ncname row.token, version: 1 if row
     end
-
-
 
     # Expire all cookies associated with a principal.
     #
