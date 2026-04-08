@@ -393,16 +393,17 @@ module ForgetPasswords
     # Default 401 handler.
     #
     # @param req [Rack::Request]
+    # @param header [true, false] set FastCGI variable header
     #
     # @return [Rack::Response] the response
     #
-    def default_401 req
+    def default_401 req, header: true
       uri  = req_uri req
       resp = Rack::Response.new
       resp.status = 401
       @templates[:default_401, req].populate resp, req, {
         FORWARD: req_uri(req).to_s, LOGIN: @targets[:login] }, base: uri
-      resp.set_header "Variable-#{@vars[:type]}", resp.content_type
+      resp.set_header "Variable-#{@vars[:type]}", resp.content_type if header
       resp
     end
 
@@ -663,6 +664,61 @@ module ForgetPasswords
       Rack::Response.new nil, 204
     end
 
+    # This is another API-like resource to test whether the given
+    # principal is enrolled. Handles GET/POST/QUERY. The query key is
+    # currently hard-coded as `principal`.
+    #
+    # @param req [Rack::Request]
+    #
+    # @raise [ForgetPasswords::ErrorResponse]
+    #
+    # @return [Rack::Response]
+    #
+    def handle_test req
+      # 501 if admin jwt not configured
+      raise_error(501, 'JWT authentication is not enabled.', req) unless
+        @jwt && @jwt[:admin]
+
+      # filter for request method
+      raise_error 405, "#{req.method} method unsupported" unless
+        %w[GET HEAD POST QUERY].include? req.method
+
+      # 401 if jwt not supplied or invalid
+      raise_error(401, 'Endpoint is authenticated by JWT', req) unless
+        verify_admin_jwt req
+
+      principal = nil
+
+      # we check the uri if get and
+      if %w[GET HEAD].include? req.method
+        query = URI::decode_www_form(
+          req_uri(uri).query.to_s).to_h.transform_keys(:to_sym)
+        principal = query[:principal]
+      elsif req.form_data?
+        query = req.form_pairs.to_h
+        # then we look for the principal
+        principal = query[:principal]
+      elsif /\btext\/plain\b/i.match? req.content_type
+        # then the input itself is the principal
+        principal = req.body.strip
+      else
+        # return 415 XXX these raises don't have to be raises; it's
+        # only useful for them to raise *sometimes*
+        raise_error 415, 'Unsupported media type in the request'
+      end
+
+      # XXX we should consider if we want to expand to other identifiers
+      unless principal and principal = email_in principal
+        # return 409
+        raise_error 409, 'Principal must be a valid e-mail address'
+      end
+
+      code = @state.enrolled?(principal) ? 204 : 404
+
+      # now we test and either return 204 or 404
+      Rack::Response[code]
+    end
+
     # Dispatched endpoint for out-of-band authentication. Takes the
     # principal as input (text/plain) and returns the cookie via
     # `Set-Cookie`. Pass in `Prefer: return=representation` if you
@@ -799,7 +855,7 @@ module ForgetPasswords
         '@context' => { '@version' => 1.1 }.merge(ME_PREFIXES),
         '@id' => uri, '@type' => 'bibo:Webpage',
         'dct:title' => { '@language' => 'en', '@value' => 'Who Am I?' },
-        'foaf:primaryTopicOf' => { '@id' => user, '@type' => 'sioc:User' },
+        'foaf:primaryTopic' => { '@id' => user, '@type' => 'sioc:User' },
         'pav:retrievedBy' => { '@id' => user },
       }
       JSON.pretty_generate json
@@ -836,14 +892,15 @@ module ForgetPasswords
       # assert GET only (dealt with outboard)
 
       # return 401 unless `REMOTE_USER` exists
-      type = HTTP::Negotiate.negotiate req, ME_CONNEG
+      return default_401(req, header: false) unless req.env['REMOTE_USER']
 
       # return 406 unless conneg ok
+      type = HTTP::Negotiate.negotiate req, ME_CONNEG
       return Rack::Response[406] unless type
 
       # echo resource
       body = instance_exec req, &ME_VARIANTS[type]
-      hdrs = { 'content-type' => type, 'content-length' => body.b.length.to_s }
+      hdrs = { 'content-type' => type, 'content-length' => body.b.size.to_s }
 
       Rack::Response[200, hdrs, [body]]
     end
@@ -1011,6 +1068,9 @@ module ForgetPasswords
 
         handle_logout req
       },
+      test: -> req {
+        handle_test req
+      }
       enroll: -> req {
         raise_error(405, :post_only, req) unless req.post?
 

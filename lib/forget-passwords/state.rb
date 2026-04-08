@@ -404,6 +404,10 @@ module ForgetPasswords
       user.id if user
     end
 
+    def enrolled? principal
+      !!record_for(principal)
+    end
+
     def new_user principal, email: nil
       record_for principal, create: true, email: email
     end
