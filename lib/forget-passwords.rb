@@ -1,18 +1,28 @@
-require 'forget-passwords/version'
+# this stuff
 require 'forget-passwords/types'
 require 'forget-passwords/state'
 require 'forget-passwords/template'
-require 'uuid-ncname'
 
+# my stuff
+require 'uuid-ncname'
+require 'xml-mixup'
+require 'http-negotiate'
+
+# type stuff (should be implicit actually)
 require 'dry-types'
 require 'dry-schema'
 
+# web stuff
 require 'rack'
 require 'rack/request'
 require 'rack/response'
 
+# mail stuff
 require 'base64'
 require 'mail'
+
+# other stuff
+require 'json'
 
 module ForgetPasswords
 
@@ -129,6 +139,7 @@ module ForgetPasswords
       logout_all: '/logged-out-all',
       enroll:     '/enroll-identity',
       bypass:     '/generate-token',
+      me:         '/me',
     }.transform_values { |x| ST.default x.freeze }).hash_default
 
     # mapping override with specific values
@@ -731,6 +742,112 @@ module ForgetPasswords
       resp
     end
 
+    ME_PREFIXES = {
+      bibo: 'http://purl.org/ontology/bibo/',
+      dct:  'http://purl.org/dc/terms/',
+      foaf: 'http://xmlns.com/foaf/0.1/',
+      pav:  'http://purl.org/pav/',
+      sioc: 'http://rdfs.org/sioc/ns#',
+      xsd:  'http://www.w3.org/2001/XMLSchema#',
+    }
+
+    def user_uri user
+      if /@/.match? user
+        user = "mailto:#{user}" unless /^mailto:/i.match? user
+      elsif /\./.match? user
+        user = "at://#{user}" unless /^at:\/\//i.match? user
+      else
+        user = "urn:x-user:#{user}" unless /:/.match? user
+      end
+
+      # XXX this may still blow up lol
+      URI(user)
+    end
+
+    # Internal stub method to return an (X)HTML representation of the
+    # currently logged-in user.
+    #
+    # @param req [Rack::Request]
+    #
+    # @return [XML::LibXML::Document]
+    #
+    def html_me req
+      uri  = req_uri req
+      user = user_uri req.env['REMOTE_USER']
+
+      XML::Mixup.xhtml_stub(
+        base: uri, title: ['dct:title', 'Who Am I?'],
+        prefix: ME_PREFIXES, attr: { typeof: 'bibo:Webpage' },
+        content: { '#p' => {
+          '#a' => user, href: user, typeof: 'sioc:User',
+          rel: 'pav:retrievedBy foaf:primaryTopic' } },
+      ).document
+    end
+
+    # Internal method to return a JSON-LD representation of the
+    # currently logged-in user.
+    #
+    # @param req [Rack::Request]
+    #
+    # @return [String] JSON representation
+    #
+    def json_me req
+      uri  = req_uri(req).to_s
+      user = user_uri(req.env['REMOTE_USER']).to_s
+
+      json = {
+        '@context' => { '@version' => 1.1 }.merge(ME_PREFIXES),
+        '@id' => uri, '@type' => 'bibo:Webpage',
+        'dct:title' => { '@language' => 'en', '@value' => 'Who Am I?' },
+        'foaf:primaryTopicOf' => { '@id' => user, '@type' => 'sioc:User' },
+        'pav:retrievedBy' => { '@id' => user },
+      }
+      JSON.pretty_generate json
+    end
+
+    ME_VARIANTS = {
+      'application/xhtml+xml' => -> req { html_me(req).to_xml },
+      'text/html'             => -> req {
+        # this serializes properly as html
+        doc  = Nokogiri::HTML5::Document.new
+        doc << html_me(req).root.dup 1
+        doc.to_html
+      },
+      'application/ld+json'   => method(:json_me),
+    }
+
+    ME_CONNEG = ME_VARIANTS.each_with_object({}) do |pair, hash|
+      type, _ = pair
+      # honestly the actual size doesn't matter as long as it descends
+      hash[type] = [1 / (hash.size + 1), type]
+    end
+
+    # Provide a resource that echoes the identifier for the client's
+    # `REMOTE_USER` principal back to them, if one is present. Return
+    # 401 if not.
+    #
+    # @param req [Rack::Request]
+    #
+    # @raise [ForgetPasswords::ErrorResponse]
+    #
+    # @return [Rack::Response]
+    #
+    def handle_me req
+      # assert GET only (dealt with outboard)
+
+      # return 401 unless `REMOTE_USER` exists
+      type = HTTP::Negotiate.negotiate req, ME_CONNEG
+
+      # return 406 unless conneg ok
+      return Rack::Response[406] unless type
+
+      # echo resource
+      body = instance_exec req, &ME_VARIANTS[type]
+      hdrs = { 'content-type' => type, 'content-length' => body.b.length.to_s }
+
+      Rack::Response[200, hdrs, [body]]
+    end
+
     # Dispatched resource for receiving the initial `POST` to kick off
     # the sign-in process.
     #
@@ -903,7 +1020,12 @@ module ForgetPasswords
         raise_error(405, :post_only, req) unless req.post?
 
         handle_bypass req
-      }
+      },
+      me: -> req {
+        raise_error(405, :get_only, req) unless req.get?
+
+        handle_me req
+      },
     }
 
     public
