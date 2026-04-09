@@ -22,6 +22,10 @@ module ForgetPasswords
 
     # config primitives
 
+    LaxBool = Bool.constructor do |x|
+      x.is_a?(Numeric) ? x != 0 : /^(1|true|on|yes)$/.match?(x.to_s.strip)
+    end
+
     ASCIIToken = Strict::String.constrained(format: ASCII).constructor(&:strip)
 
     # actually pretty sure i can define constraints for this type, oh well

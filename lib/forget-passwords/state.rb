@@ -221,6 +221,10 @@ module ForgetPasswords
             true
           end
 
+          def m.permit? domain, email, force: false
+            permit domain, email, force: force unless listed? domain, email
+          end
+
           def m.revoke domain, email, force: false
             # update, noop if not present?
             domain = (
@@ -414,7 +418,7 @@ module ForgetPasswords
 
     def enroll? domain, principal, email: nil
       transaction do
-        acl.permit domain, email || principal
+        acl.permit? domain, email || principal
         new_user principal, email: email
       end
     end

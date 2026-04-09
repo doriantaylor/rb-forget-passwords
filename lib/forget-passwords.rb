@@ -744,32 +744,46 @@ module ForgetPasswords
       raise_error(401, 'Endpoint is authenticated by JWT', req) unless
         verify_admin_jwt req
 
-      # 415 if request is not text/plain
-      raise_error(415, 'Request must be text/plain', req) unless
-        /\btext\/plain\b/i.match? req.content_type.to_s
+      # get the principal
+      uri       = req_uri req
+      principal = nil
+      enroll    = false
+
+      if req.form_data?
+        form      = req.form_pairs.to_h.transform_keys(&:to_sym)
+        principal = email_in form[:principal]
+        enroll    = ForgetPasswords::Types::LaxBool[form[:enroll]]
+      elsif /\btext\/plain\b/i.match? req.content_type.to_s
+        principal = req.body.read.to_s.strip
+        raise_error(409, 'Empty POST body', req) if principal.empty?
+
+        # get it from the URL otherwise
+        form = URI::decode_www_form(
+          uri.query.to_s).to_h.transform_keys(&:to_sym) rescue Hash[]
+        enroll = ForgetPasswords::Types::LaxBool[form[:enroll]]
+      else
+        # unsupported media type
+        raise_error 415, 'Request body must be a form, or text/plain', req
+      end
 
       # 409 if no principal supplied or malformed
+      raise_error(409, "Malformed principal #{body}", req) unless
+        principal = email_in principal
 
-      body = req.body.read.to_s.strip
-      raise_error(409, 'Empty POST body', req) if body.empty?
+      # capture whether the principal is listed already for the domain
+      listed = @state.acl.listed? uri, principal
 
-      principal = email_in body
-      raise_error(409, "Malformed principal #{body}", req) unless principal
-
-      # 404 if user is not found
-      raise_error(404, "#{principal} is not found.", req) unless
-        @state.id_for principal
-
-      uri = req_uri req
-
-      case @state.acl.listed? uri, principal
-      when nil
+      if enroll
+        # `listed` will of course stay nil/false if this actually does something
+        @state.enroll? uri, principal
+      elsif listed.nil?
         raise_error 403, "#{principal} is not listed for this domain.", req
-      when false
+      elsif !listed
         raise_error 410, "#{principal} has been revoked.", req
       end
 
       # get the token
+      # (this also will create a new user record if they have never logged in)
       token = @state.new_token principal, cookie: true
 
       resp = Rack::Response.new
@@ -777,13 +791,13 @@ module ForgetPasswords
       prefer = req.get_header('HTTP_PREFER').to_s
       if /\breturn\s*=\s*representation\b/i.match? prefer
         # return it as a text/plain body
-        resp.status = 200
+        resp.status = 200 # no differentiation here
         resp.content_type = 'text/plain'
         resp.set_header('preference-applied', 'return=representation')
         resp.append token
       else
         # default: set the cookie directly, return no body
-        resp.status = 204
+        resp.status = listed ? 204 : 201
         resp.set_cookie @keys[:cookie], {
           value:     token,
           secure:    req.ssl?,
@@ -1070,7 +1084,7 @@ module ForgetPasswords
       },
       test: -> req {
         handle_test req
-      }
+      },
       enroll: -> req {
         raise_error(405, :post_only, req) unless req.post?
 
