@@ -774,8 +774,8 @@ module ForgetPasswords
       listed = @state.acl.listed? uri, principal
 
       if enroll
-        # `listed` will of course stay nil/false if this actually does something
-        @state.enroll? uri, principal
+        # this will explicitly permit the principal (rather than their domain)
+        @state.acl.permit uri, principal unless listed
       elsif listed.nil?
         raise_error 403, "#{principal} is not listed for this domain.", req
       elsif !listed

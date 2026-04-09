@@ -221,6 +221,7 @@ module ForgetPasswords
             true
           end
 
+          # XXX this might be dumb
           def m.permit? domain, email, force: false
             permit domain, email, force: force unless listed? domain, email
           end
@@ -416,6 +417,10 @@ module ForgetPasswords
       record_for principal, create: true, email: email
     end
 
+    # Conditionally enroll a principal if not already enrolled.
+    #
+    # @note XXX is this even necessary?
+    #
     def enroll? domain, principal, email: nil
       transaction do
         acl.permit? domain, email || principal
