@@ -687,12 +687,13 @@ module ForgetPasswords
       raise_error(401, 'Endpoint is authenticated by JWT', req) unless
         verify_admin_jwt req
 
+      uri       = req_uri req
       principal = nil
 
       # we check the uri if get and
       if %w[GET HEAD].include? req.method
         query = URI::decode_www_form(
-          req_uri(uri).query.to_s).to_h.transform_keys(:to_sym)
+          uri.query.to_s).to_h.transform_keys(&:to_sym) rescue {}
         principal = query[:principal]
       elsif req.form_data?
         query = req.form_pairs.to_h
@@ -713,7 +714,7 @@ module ForgetPasswords
         raise_error 409, 'Principal must be a valid e-mail address'
       end
 
-      code = @state.enrolled?(principal) ? 204 : 404
+      code = @state.listed?(uri, principal) ? 204 : 404
 
       # now we test and either return 204 or 404
       Rack::Response[code]

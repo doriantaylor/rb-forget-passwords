@@ -477,10 +477,10 @@ module ForgetPasswords
 
     # Expire all cookies associated with a principal.
     #
-    # @param
-    # @param
+    # @param principal [String]
+    # @param cookie [nil, String]
     #
-    # @return
+    # @return [void]
     #
     def expire_tokens_for principal, cookie: nil
       id = principal.is_a?(Integer) ? principal : id_for(principal)
